@@ -134,7 +134,9 @@ jobs:
           # Limpio de cache para evitar errores de lockfile
 
       - name: Install frontend dependencies
-        run: yarn install
+        run: |
+              yarn add @civic/solana-gateway-react@latest
+              yarn install
         working-directory: frontend
 
       - name: TypeScript type check
