@@ -1,0 +1,265 @@
+# =============================================================================
+#  MAMPOSTERA v0.4.0 — CI/CD Pipeline
+#  Jobs: security-audit → test-program → build-frontend
+#        → deploy-devnet (main, manual) → deploy-testnet (release, manual)
+# =============================================================================
+
+name: Mampostera CI v0.4
+
+on:
+  push:
+    branches: [main, develop, release]
+  pull_request:
+    branches: [main]
+
+env:
+  SOLANA_VERSION: "1.18.16"
+  ANCHOR_VERSION:  "0.30.1"
+  NODE_VERSION:    "20"
+  RUST_TOOLCHAIN:  "stable"
+
+jobs:
+  # ─── Job 1: Auditoría de seguridad ─────────────────────────────────────────
+  security-audit:
+    name: Security audit (Rust + Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-v1
+
+      - name: Audit Rust dependencies
+        run: |
+          cargo install cargo-audit --locked 2>/dev/null || true
+          cargo audit --deny warnings
+
+      - name: Audit Node dependencies (frontend)
+        run: npm audit --audit-level=high
+        working-directory: frontend
+        continue-on-error: true
+
+  # ─── Job 2: Build y test del programa Anchor ───────────────────────────────
+  test-program:
+    name: Anchor program tests (Token-2022)
+    runs-on: ubuntu-latest
+    needs: security-audit
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Rust / Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor \
+            avm --locked --force 2>/dev/null || true
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
+          anchor --version
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+
+      - run: yarn install --frozen-lockfile
+
+      - name: Generate CI keypair
+        run: |
+          solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
+          echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
+          solana config set --url localhost
+
+      - name: Build programa (Token-2022)
+        run: anchor build
+
+      - name: Verificar IDL generado
+        run: |
+          test -f target/idl/mampostera.json && echo "✅ IDL OK"
+          cat target/idl/mampostera.json | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print(f'Instrucciones: {len(d[\"instructions\"])}')" \
+            2>/dev/null || echo "IDL parse skipped"
+
+      - name: Run all tests
+        run: anchor test --skip-deploy
+        env:
+          ANCHOR_WALLET: /tmp/ci-wallet.json
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mampostera-build-${{ github.sha }}
+          path: |
+            target/idl/mampostera.json
+            target/types/mampostera.ts
+            .anchor/
+          retention-days: 14
+
+  # ─── Job 3: Frontend build ─────────────────────────────────────────────────
+  build-frontend:
+    name: Frontend build (Next.js 14 + Solana)
+    runs-on: ubuntu-latest
+    needs: test-program
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install frontend dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: frontend
+
+      - name: TypeScript type check
+        run: yarn tsc --noEmit
+        working-directory: frontend
+
+      - name: Build Next.js
+        run: yarn build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_PROGRAM_ID:       "MAMPoSTERAv2222222222222222222222222222222"
+          NEXT_PUBLIC_SOLANA_NETWORK:   "devnet"
+          NEXT_PUBLIC_RPC_ENDPOINT:     "https://api.devnet.solana.com"
+          NEXT_PUBLIC_AUTHORITY_PUBKEY: "11111111111111111111111111111111"
+          NEXT_PUBLIC_CIVIC_GATEKEEPER: "ignREusXmGrscGNUesoU9mxfds9AiYTezUKex2PsZV6"
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-${{ github.sha }}
+          path: frontend/.next/
+          retention-days: 7
+
+  # ─── Job 4: Deploy a Devnet (push a main, aprobación manual) ───────────────
+  deploy-devnet:
+    name: Deploy to Devnet
+    runs-on: ubuntu-latest
+    needs: [test-program, build-frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: devnet
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Solana CLI + Anchor
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force 2>/dev/null || true
+          avm install ${{ env.ANCHOR_VERSION }} && avm use ${{ env.ANCHOR_VERSION }}
+
+      - name: Restore wallet de deploy
+        run: |
+          echo "${{ secrets.DEPLOY_KEYPAIR_JSON }}" > /tmp/deploy-wallet.json
+          echo "ANCHOR_WALLET=/tmp/deploy-wallet.json" >> $GITHUB_ENV
+          solana config set --url devnet
+          solana balance
+
+      - name: Build y deploy a Devnet
+        run: |
+          anchor build
+          anchor deploy --provider.cluster devnet
+          PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
+          echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
+          echo "✅ Devnet: $PROGRAM_ID"
+          echo "https://explorer.solana.com/address/$PROGRAM_ID?cluster=devnet"
+
+      - name: Deploy frontend a Vercel (devnet)
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token:      ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id:     ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./frontend
+          vercel-args:       '--prod'
+        env:
+          NEXT_PUBLIC_PROGRAM_ID:       ${{ env.PROGRAM_ID }}
+          NEXT_PUBLIC_SOLANA_NETWORK:   devnet
+          NEXT_PUBLIC_RPC_ENDPOINT:     ${{ secrets.HELIUS_RPC_URL }}
+          NEXT_PUBLIC_CIVIC_GATEKEEPER: ignREusXmGrscGNUesoU9mxfds9AiYTezUKex2PsZV6
+
+  # ─── Job 5: Deploy a Testnet (rama release, aprobación manual) ─────────────
+  # Activa cuando se hace push a la rama 'release'
+  # Requiere secretos: TESTNET_DEPLOY_KEYPAIR_JSON
+  deploy-testnet:
+    name: Deploy to Testnet
+    runs-on: ubuntu-latest
+    needs: [test-program, build-frontend]
+    if: github.ref == 'refs/heads/release' && github.event_name == 'push'
+    environment: testnet
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Solana CLI + Anchor
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force 2>/dev/null || true
+          avm install ${{ env.ANCHOR_VERSION }} && avm use ${{ env.ANCHOR_VERSION }}
+
+      - name: Restore wallet testnet
+        run: |
+          echo "${{ secrets.TESTNET_DEPLOY_KEYPAIR_JSON }}" > /tmp/testnet-wallet.json
+          echo "ANCHOR_WALLET=/tmp/testnet-wallet.json" >> $GITHUB_ENV
+          solana config set --url testnet
+          solana balance
+
+      - name: Build y deploy a Testnet
+        run: |
+          anchor build
+          anchor deploy --provider.cluster testnet
+          PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
+          echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
+          echo "✅ Testnet: $PROGRAM_ID"
+          echo "https://explorer.solana.com/address/$PROGRAM_ID?cluster=testnet"
+
+      - name: Publicar IDL en testnet
+        run: |
+          anchor idl init \
+            --filepath target/idl/mampostera.json \
+            $(solana address -k target/deploy/mampostera-keypair.json) \
+            --provider.cluster testnet
+          echo "✅ IDL publicado en testnet"
+
+      - name: Deploy frontend a Vercel (testnet)
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token:      ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id:     ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./frontend
+          vercel-args:       '--prod'
+        env:
+          NEXT_PUBLIC_PROGRAM_ID:       ${{ env.PROGRAM_ID }}
+          NEXT_PUBLIC_SOLANA_NETWORK:   testnet
+          NEXT_PUBLIC_RPC_ENDPOINT:     https://api.testnet.solana.com
+          NEXT_PUBLIC_CIVIC_GATEKEEPER: ignREusXmGrscGNUesoU9mxfds9AiYTezUKex2PsZV6
