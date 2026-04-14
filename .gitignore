@@ -1,0 +1,55 @@
+# ═══════════════════════════════════════════════════════════
+#  MAMPOSTERA — .gitignore
+#  REGLA DE ORO: NUNCA commitear keypairs, secrets ni .env
+# ═══════════════════════════════════════════════════════════
+
+# ─── SEGURIDAD CRÍTICA: keypairs y wallets ───────────────────
+*.json
+!package.json
+!tsconfig*.json
+!package-lock.json
+!yarn.lock
+
+# Keypairs específicos
+*-keypair.json
+id.json
+wallet.json
+deployer.json
+authority.json
+*.keypair
+
+# Variables de entorno
+.env
+.env.local
+.env.development
+.env.production
+.env*.local
+*.env
+
+# ─── Anchor / Solana ─────────────────────────────────────────
+.anchor/
+target/
+**/*.so
+
+# ─── Node ────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+.pnp
+.pnp.js
+
+# ─── Next.js ─────────────────────────────────────────────────
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# ─── Sistema ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# ─── IDEs ────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
