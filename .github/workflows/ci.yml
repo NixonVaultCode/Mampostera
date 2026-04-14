@@ -69,15 +69,21 @@ jobs:
 
       - name: Install Solana and Anchor Tools
         run: |
-          # 1. Instalamos Solana usando el script oficial pero forzando la conexión
-          # El -k ignora errores de certificado SSL temporales del servidor de Solana
+          # 1. Instalación de Solana (con bypass de SSL)
           curl -k -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
           
-          # 2. Configuramos el PATH manualmente para este paso y los siguientes
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          # 2. DEFINIR PATHS CRÍTICOS (Aquí estaba el fallo)
+          # El instalador de Solana usa esta ruta específica:
+          SOLANA_BIN="$HOME/.local/share/solana/install/active_release/bin"
+          AVM_BIN="$HOME/.avm/bin"
           
-          # 3. Instalamos Anchor vía Cargo (esto suele ser muy estable)
+          echo "$SOLANA_BIN" >> $GITHUB_PATH
+          echo "$AVM_BIN" >> $GITHUB_PATH
+          
+          # Actualizamos la sesión actual para que los siguientes comandos funcionen YA
+          export PATH="$SOLANA_BIN:$AVM_BIN:$PATH"
+          
+          # 3. Instalación de Anchor
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm install ${{ env.ANCHOR_VERSION }}
           avm use ${{ env.ANCHOR_VERSION }}
@@ -85,7 +91,6 @@ jobs:
           # 4. Verificación
           solana --version
           anchor --version
-
       - name: Install Dependencies
         run: yarn install
 
