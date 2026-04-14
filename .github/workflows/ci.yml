@@ -69,21 +69,15 @@ jobs:
 
       - name: Install Solana CLI
         run: |
-          # Usamos la URL directa de Google Storage que es más estable que el redirect de Solana
-          URL="https://storage.googleapis.com/solana-release/v${{ env.SOLANA_VERSION }}/install"
-          curl -sSfL --retry 5 --retry-delay 10 $URL | sh
+          # Usamos parámetros para forzar IPv4 y evitar errores de handshake SSL
+          curl -4 -sSfL --retry 5 --retry-delay 10 https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
           
           # Configuramos el PATH
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
           export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           
-          # Verificamos si el binario existe antes de ejecutarlo
-          if [ -f "$HOME/.local/share/solana/install/active_release/bin/solana" ]; then
-            solana --version
-          else
-            echo "La descarga falló incluso con reintentos."
-            exit 1
-          fi
+          # Verificamos
+          solana --version
       - name: Install Anchor
         run: |
           cargo install --git https://github.com/coral-xyz/anchor \
