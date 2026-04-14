@@ -69,39 +69,32 @@ jobs:
 
       - name: Install Solana and Anchor Tools
         run: |
-          # 1. Instalación de Solana (con bypass de SSL)
           curl -k -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
-          
-          # 2. DEFINIR PATHS CRÍTICOS (Aquí estaba el fallo)
-          # El instalador de Solana usa esta ruta específica:
           SOLANA_BIN="$HOME/.local/share/solana/install/active_release/bin"
           AVM_BIN="$HOME/.avm/bin"
-          
           echo "$SOLANA_BIN" >> $GITHUB_PATH
           echo "$AVM_BIN" >> $GITHUB_PATH
-          
-          # Actualizamos la sesión actual para que los siguientes comandos funcionen YA
           export PATH="$SOLANA_BIN:$AVM_BIN:$PATH"
-          
-          # 3. Instalación de Anchor
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm install ${{ env.ANCHOR_VERSION }}
           avm use ${{ env.ANCHOR_VERSION }}
-          
-          # 4. Verificación
           solana --version
           anchor --version
+
       - name: Install Dependencies
         run: yarn install
 
       - name: Generate CI keypair
         run: |
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$PATH"
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
 
       - name: Build programa (Token-2022)
-        run: anchor build
+        run: |
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$PATH"
+          anchor build
 
       - name: Verificar IDL generado
         run: |
@@ -111,7 +104,9 @@ jobs:
             2>/dev/null || echo "IDL parse skipped"
 
       - name: Run all tests
-        run: anchor test --skip-deploy
+        run: |
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$PATH"
+          anchor test --skip-deploy
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
 
