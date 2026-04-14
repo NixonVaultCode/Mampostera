@@ -44,7 +44,7 @@ jobs:
         working-directory: frontend
         continue-on-error: true
 
- # ─── Job 2: Build y test del programa Anchor ───────────────────────────────
+# ─── Job 2: Build y test del programa Anchor ───────────────────────────────
   test-program:
     name: Anchor program tests (Token-2022)
     runs-on: ubuntu-latest
@@ -72,7 +72,7 @@ jobs:
           # 1. Descargar y descomprimir el binario oficial
           curl -k -L https://github.com/solana-labs/solana/releases/download/v${{ env.SOLANA_VERSION }}/solana-release-x86_64-unknown-linux-gnu.tar.bz2 | tar jxf -
           
-          # 2. Copiar TODO el contenido a la ruta del sistema (con -r para las subcarpetas)
+          # 2. Copiar contenido a ruta del sistema
           sudo cp -r solana-release/bin/* /usr/bin/
           
           # 3. Instalar Anchor (AVM)
@@ -93,26 +93,21 @@ jobs:
 
       - name: Generate CI keypair and Force Sync ID
         run: |
-          # 1. Generamos la llave real para este build
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
-          
-          # 2. Obtenemos el ID público de esa llave
           PROGRAM_ID=$(solana-keygen pubkey /tmp/ci-wallet.json)
           echo "ID generado: $PROGRAM_ID"
           
-          # 3. REEMPLAZO FORZADO (Solución al error String Size)
-          # Buscamos declare_id y reemplazamos todo lo que esté entre comillas por el nuevo ID
+          # Reemplazo forzado de IDs
           sed -i "s/declare_id!(\".*\")/declare_id!(\"$PROGRAM_ID\")/g" programs/mampostera/src/lib.rs
-          
-          # Actualizamos también el Anchor.toml para que coincida
           sed -i "s/mampostera = \".*\"/mampostera = \"$PROGRAM_ID\"/g" Anchor.toml
           
-          # 4. Configuración de entorno
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
 
       - name: Build programa (Token-2022)
         run: anchor build
+        env:
+          SOLANA_SDK_PATH: "/tmp/solana-sdk"
 
       - name: Verificar IDL generado
         run: |
@@ -120,10 +115,12 @@ jobs:
           cat target/idl/mampostera.json | python3 -c \
             "import sys,json; d=json.load(sys.stdin); print(f'Instrucciones: {len(d[\"instructions\"])}')" \
             2>/dev/null || echo "IDL parse skipped"
+
       - name: Run all tests
         run: anchor test --skip-deploy
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
+          SOLANA_SDK_PATH: "/tmp/solana-sdk"
 
       - name: Upload build artifacts
         if: always()
@@ -135,7 +132,6 @@ jobs:
             target/types/mampostera.ts
             .anchor/
           retention-days: 14
-
  # ─── Job 3: Frontend build ─────────────────────────────────────────────────
   build-frontend:
     name: Frontend build (Next.js 14 + Solana)
