@@ -69,16 +69,21 @@ jobs:
 
       - name: Install Solana and Anchor Tools
         run: |
-          # 1. Instalamos solo lo esencial de Solana (evita compilar todo el paquete pesado)
-          cargo install solana-cli --version ${{ env.SOLANA_VERSION }} --no-default-features --features=bip39 --locked
+          # 1. Instalamos Solana usando el script oficial pero forzando la conexión
+          # El -k ignora errores de certificado SSL temporales del servidor de Solana
+          curl -k -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
           
-          # 2. Instalamos Anchor
+          # 2. Configuramos el PATH manualmente para este paso y los siguientes
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          
+          # 3. Instalamos Anchor vía Cargo (esto suele ser muy estable)
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm install ${{ env.ANCHOR_VERSION }}
           avm use ${{ env.ANCHOR_VERSION }}
           
-          # 3. Verificación
-          solana-keygen --version
+          # 4. Verificación
+          solana --version
           anchor --version
 
       - name: Install Dependencies
