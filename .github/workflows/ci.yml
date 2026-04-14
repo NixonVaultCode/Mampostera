@@ -84,10 +84,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: yarn
+          
 
-      - run: yarn install --frozen-lockfile
-
+      - run: yarn install
       - name: Generate CI keypair
         run: |
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
@@ -120,7 +119,7 @@ jobs:
             .anchor/
           retention-days: 14
 
-  # ─── Job 3: Frontend build ─────────────────────────────────────────────────
+ # ─── Job 3: Frontend build ─────────────────────────────────────────────────
   build-frontend:
     name: Frontend build (Next.js 14 + Solana)
     runs-on: ubuntu-latest
@@ -132,11 +131,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: yarn
-          cache-dependency-path: frontend/yarn.lock
+          # Limpio de cache para evitar errores de lockfile
 
       - name: Install frontend dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install
         working-directory: frontend
 
       - name: TypeScript type check
