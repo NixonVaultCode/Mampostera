@@ -94,17 +94,27 @@ jobs:
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
 
+      # 1. FIX DE PERMISOS: Aseguramos que el runner sea dueño de su HOME y el workspace
+      - name: Final ownership fix
+        run: sudo chown -R $(whoami):$(id -gn) $HOME ${{ github.workspace }}
+
+      # 2. BUILD CON REGENERACIÓN DE LOCKFILE
       - name: Build programa Anchor (Token-2022)
         run: |
-          # Forzamos a AVM a reconocer la versión
+          # Asegurar versión de Anchor
           avm use ${{ env.ANCHOR_VERSION }}
           
-          # FIX: El lockfile v4 da error en versiones antiguas de cargo.
-          # Lo actualizamos para que el toolchain de Solana lo acepte.
-          cargo update
+          # Borrar el lockfile "del futuro" v4
+          rm -f Cargo.lock
           
-          # Compilamos
+          # Generar un lockfile compatible con el Rust del Runner
+          cargo generate-lockfile
+          
+          # Compilar
           anchor build
+        env:
+          # Variable de seguridad para compatibilidad de versiones
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: allow
 
       - name: Run all tests
         run: anchor test --skip-deploy
