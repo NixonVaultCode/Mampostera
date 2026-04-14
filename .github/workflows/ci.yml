@@ -69,9 +69,14 @@ jobs:
 
       - name: Install Solana CLI
         run: |
-          sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
+          # Intentamos la descarga con reintentos en caso de error de red (SSL)
+          curl -sSfL --retry 3 --retry-delay 5 https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
+          
+          # Configuramos el PATH para que el sistema encuentre los comandos
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
           export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          
+          # Verificamos la instalación
           solana --version
 
       - name: Install Anchor
