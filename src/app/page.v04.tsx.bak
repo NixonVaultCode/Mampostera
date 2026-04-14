@@ -1,0 +1,505 @@
+"use client";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  ConnectionProvider,
+  WalletProvider,
+  useWallet,
+} from "@solana/wallet-adapter-react";
+import { WalletModalProvider, WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { PhantomWalletAdapter, SolflareWalletAdapter } from "@solana/wallet-adapter-wallets";
+import { clusterApiUrl } from "@solana/web3.js";
+import "@solana/wallet-adapter-react-ui/styles.css";
+
+import { useMampostera }  from "../hooks/useMampostera";
+import type { PropertyUI } from "../types";
+
+// ─── Formatters ───────────────────────────────────────────────────────────────
+
+const fmtUSD = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+
+const fmtSOL = (n: number) => n.toFixed(4);
+const fmtPct = (n: number) => n.toFixed(1) + "%";
+
+// ─── Property Card ────────────────────────────────────────────────────────────
+
+function PropertyCard({
+  property,
+  tokenBalance,
+  onBuy,
+  onClaim,
+}: {
+  property:     PropertyUI;
+  tokenBalance: number;
+  onBuy:        (p: PropertyUI) => void;
+  onClaim:      (p: PropertyUI) => void;
+}) {
+  const hasRent = property.collectedRentSOL > 0;
+  const displayValue = property.oracleValue ?? property.totalValueUSD;
+
+  return (
+    <div className="prop-card">
+      <div className="prop-header">
+        <span className={`status-dot ${property.isActive ? "active" : "inactive"}`} />
+        <span className="prop-loc">{property.location}</span>
+        {property.isRentLocked && (
+          <span className="badge-dist">Distribuyendo</span>
+        )}
+      </div>
+
+      <div className="prop-value">
+        <span className="val-label">Valor {property.oracleValue ? "(oracle)" : "(inicial)"}</span>
+        <span className="val-amount">{fmtUSD(displayValue)}</span>
+      </div>
+
+      <div className="prop-progress">
+        <div className="prog-labels">
+          <span>Vendido</span>
+          <span className="prog-pct">{fmtPct(property.percentSold)}</span>
+        </div>
+        <div className="prog-track">
+          <div className="prog-fill" style={{ width: `${Math.min(property.percentSold, 100)}%` }} />
+        </div>
+      </div>
+
+      <div className="prop-metrics">
+        <div className="metric-box">
+          <span className="metric-label">Tu balance</span>
+          <span className="metric-val">{tokenBalance.toLocaleString()} tok</span>
+        </div>
+        <div className="metric-box">
+          <span className="metric-label">Renta acum.</span>
+          <span className="metric-val">{fmtSOL(property.collectedRentSOL)} SOL</span>
+        </div>
+      </div>
+
+      <div className="prop-actions">
+        <button className="btn-buy" onClick={() => onBuy(property)}>
+          Comprar tokens
+        </button>
+        <button
+          className="btn-claim"
+          onClick={() => onClaim(property)}
+          disabled={!hasRent}
+        >
+          Reclamar renta
+        </button>
+      </div>
+
+      <div className="prop-legal">
+        <a
+          href={`https://ipfs.io/ipfs/${property.ipfsCid}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="legal-link"
+        >
+          Docs legales ↗
+        </a>
+        <span className="legal-hash" title={property.legalDocHash}>
+          SHA-256: {property.legalDocHash.slice(0, 12)}…
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── KYC Banner ───────────────────────────────────────────────────────────────
+
+function KycBanner({ status }: { status: { status: string; label: string; color: string } }) {
+  if (status.status === "approved") return null;
+
+  const msgs: Record<string, string> = {
+    unregistered: "Regístrate para verificar tu identidad y poder invertir.",
+    pending:      "Tu verificación KYC está en proceso. La authority la revisará pronto.",
+    revoked:      "Tu cuenta fue suspendida. Contacta a soporte@mampostera.co.",
+  };
+
+  return (
+    <div className={`kyc-banner kyc-${status.status}`}>
+      <span className="kyc-icon">⚠</span>
+      <span>{msgs[status.status]}</span>
+    </div>
+  );
+}
+
+// ─── App inner ────────────────────────────────────────────────────────────────
+
+function MamposteApp() {
+  const { publicKey, connected } = useWallet();
+  const {
+    properties,
+    kycStatus,
+    solBalance,
+    loading,
+    error,
+    refresh,
+    getTokenBalance,
+  } = useMampostera();
+
+  const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({});
+  const [toast, setToast]                 = useState<string | null>(null);
+  const [activeTab, setActiveTab]         = useState<"properties" | "governance" | "market">("properties");
+
+  // Cargar balances de tokens para el wallet conectado
+  useEffect(() => {
+    if (!connected || properties.length === 0) return;
+    const load = async () => {
+      const balances: Record<string, number> = {};
+      for (const p of properties) {
+        balances[p.pubkey] = await getTokenBalance(p.mintAddress);
+      }
+      setTokenBalances(balances);
+    };
+    load();
+  }, [connected, properties, getTokenBalance]);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  const handleBuy = useCallback((property: PropertyUI) => {
+    if (!connected) {
+      showToast("Conecta tu wallet para invertir");
+      return;
+    }
+    if (kycStatus.status !== "approved") {
+      showToast("Necesitas KYC aprobado para comprar tokens");
+      return;
+    }
+    showToast(`Iniciando compra de tokens de ${property.location}…`);
+    // En producción: abrir modal → llamar program.methods.mintFractionalTokens()
+  }, [connected, kycStatus, showToast]);
+
+  const handleClaim = useCallback((property: PropertyUI) => {
+    if (!connected) { showToast("Conecta tu wallet"); return; }
+    showToast(`Reclamando renta de ${property.location}…`);
+    // En producción: llamar program.methods.claimRent()
+  }, [connected, showToast]);
+
+  return (
+    <div className="app">
+      {/* ── Header ── */}
+      <header className="header">
+        <div className="header-inner">
+          <div className="logo">
+            <span className="logo-hex">⬡</span>
+            <span className="logo-name">mampostera</span>
+            <span className="logo-badge">RWA</span>
+          </div>
+
+          <nav className="tabs">
+            {(["properties", "governance", "market"] as const).map(tab => (
+              <button
+                key={tab}
+                className={`tab ${activeTab === tab ? "tab-active" : ""}`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab === "properties" ? "Propiedades"
+                  : tab === "governance" ? "Gobernanza"
+                  : "Mercado"}
+              </button>
+            ))}
+          </nav>
+
+          <div className="header-right">
+            {connected && (
+              <div className="wallet-info">
+                <span className="kyc-pill" style={{ color: kycStatus.color }}>
+                  {kycStatus.label}
+                </span>
+                <span className="sol-badge">{solBalance.toFixed(3)} SOL</span>
+              </div>
+            )}
+            <WalletMultiButton />
+          </div>
+        </div>
+      </header>
+
+      {/* ── KYC Banner ── */}
+      {connected && <KycBanner status={kycStatus} />}
+
+      {/* ── Hero ── */}
+      {activeTab === "properties" && (
+        <section className="hero">
+          <div className="hero-inner">
+            <p className="hero-tag">Solana · Real World Assets · Colombia</p>
+            <h1 className="hero-title">
+              Invierte en bienes raíces<br />
+              <span className="hero-accent">desde $1 USD</span>
+            </h1>
+            <p className="hero-sub">
+              Propiedades tokenizadas en Solana. Compra fracciones SPL,
+              recibe renta mensual proporcional, vende en el mercado secundario.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* ── Main content ── */}
+      <main className="main">
+        <div className="main-inner">
+
+          {/* ── Tab: Properties ── */}
+          {activeTab === "properties" && (
+            <>
+              <div className="section-header">
+                <h2 className="section-title">Propiedades disponibles</h2>
+                <button className="btn-refresh" onClick={refresh} disabled={loading}>
+                  {loading ? "Cargando…" : "↻ Actualizar"}
+                </button>
+              </div>
+
+              {error && (
+                <div className="error-banner">{error}</div>
+              )}
+
+              {loading && properties.length === 0 && (
+                <div className="loading-grid">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="prop-card skeleton" />
+                  ))}
+                </div>
+              )}
+
+              {!loading && properties.length === 0 && !error && (
+                <div className="empty-state">
+                  <p>No hay propiedades activas en devnet.</p>
+                  <p className="empty-sub">
+                    Ejecuta <code>yarn deploy:devnet</code> y luego inicializa una propiedad.
+                  </p>
+                </div>
+              )}
+
+              <div className="props-grid">
+                {properties.map(p => (
+                  <PropertyCard
+                    key={p.pubkey}
+                    property={p}
+                    tokenBalance={tokenBalances[p.pubkey] ?? 0}
+                    onBuy={handleBuy}
+                    onClaim={handleClaim}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* ── Tab: Governance ── */}
+          {activeTab === "governance" && (
+            <div className="coming-soon">
+              <h2>Gobernanza DAO</h2>
+              <p>
+                Los holders de tokens votan propuestas para cada propiedad.
+                Peso de voto proporcional a tokens poseídos.
+              </p>
+              <div className="feature-list">
+                {[
+                  "Crear propuestas on-chain",
+                  "Voto ponderado por tokens",
+                  "Anti doble-voto via VoteRecord PDA",
+                  "Quórum mínimo del 10%",
+                  "Historial inmutable en Solana",
+                ].map(f => (
+                  <div key={f} className="feature-item">
+                    <span className="feature-check">✓</span>
+                    <span>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="coming-soon-note">
+                Interfaz completa disponible cuando conectes wallet con KYC aprobado.
+              </p>
+            </div>
+          )}
+
+          {/* ── Tab: Market ── */}
+          {activeTab === "market" && (
+            <div className="coming-soon">
+              <h2>Mercado Secundario P2P</h2>
+              <p>
+                Compra y vende tokens de propiedades directamente entre inversores.
+                Swap atómico SOL ↔ tokens con escrow PDA.
+              </p>
+              <div className="feature-list">
+                {[
+                  "Escrow PDA — fondos custodiados on-chain",
+                  "Swap atómico SOL ↔ tokens",
+                  "Fee del 0.5% al treasury de Mampostera",
+                  "KYC obligatorio para compradores",
+                  "Ofertas con expiración configurable",
+                ].map(f => (
+                  <div key={f} className="feature-item">
+                    <span className="feature-check">✓</span>
+                    <span>{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </div>
+      </main>
+
+      {/* ── Toast ── */}
+      {toast && <div className="toast">{toast}</div>}
+
+      {/* ── Footer ── */}
+      <footer className="footer">
+        <div className="footer-inner">
+          <span className="footer-logo">⬡ mampostera</span>
+          <div className="footer-links">
+            <a href="https://github.com/NixonVaultCode/mampostera" target="_blank" rel="noopener noreferrer">
+              GitHub
+            </a>
+            <a href={`https://explorer.solana.com/address/${process.env.NEXT_PUBLIC_PROGRAM_ID}?cluster=devnet`}
+               target="_blank" rel="noopener noreferrer">
+              Explorer
+            </a>
+          </div>
+          <span className="footer-note">Hackathon Solana 2026 · Colombia</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const CSS = `
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#09090b;--bg2:#111114;--bg3:#18181c;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --text:#e4e4e7;--text2:#a1a1aa;--text3:#52525b;
+  --accent:#14f195;--purple:#9945ff;--danger:#ef4444;--warning:#f59e0b;
+  --r:10px;--r2:14px;
+}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:15px}
+a{color:var(--text2);text-decoration:none}a:hover{color:var(--text)}
+button{font-family:inherit;cursor:pointer}
+
+.app{min-height:100vh;display:flex;flex-direction:column}
+
+/* Header */
+.header{border-bottom:1px solid var(--border);background:rgba(9,9,11,.9);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}
+.header-inner{max-width:1200px;margin:0 auto;padding:0 20px;height:60px;display:flex;align-items:center;gap:20px}
+.logo{display:flex;align-items:center;gap:8px}
+.logo-hex{font-size:20px;color:var(--accent)}
+.logo-name{font-size:17px;font-weight:700;letter-spacing:-.5px}
+.logo-badge{font-size:10px;background:rgba(20,241,149,.12);color:var(--accent);border:1px solid rgba(20,241,149,.3);border-radius:4px;padding:2px 6px;font-weight:600}
+.tabs{display:flex;gap:4px;margin-left:auto}
+.tab{background:none;border:none;color:var(--text2);padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;transition:all .15s}
+.tab:hover{background:var(--bg3);color:var(--text)}
+.tab-active{background:var(--bg3);color:var(--text)!important}
+.header-right{display:flex;align-items:center;gap:10px}
+.wallet-info{display:flex;align-items:center;gap:8px}
+.kyc-pill{font-size:12px;font-weight:600}
+.sol-badge{font-size:12px;background:rgba(20,241,149,.1);color:var(--accent);border:1px solid rgba(20,241,149,.2);padding:3px 8px;border-radius:12px}
+
+/* KYC Banner */
+.kyc-banner{padding:10px 20px;font-size:13px;display:flex;align-items:center;gap:8px}
+.kyc-unregistered{background:rgba(245,158,11,.08);border-bottom:1px solid rgba(245,158,11,.2);color:var(--warning)}
+.kyc-pending{background:rgba(245,158,11,.08);border-bottom:1px solid rgba(245,158,11,.2);color:var(--warning)}
+.kyc-revoked{background:rgba(239,68,68,.08);border-bottom:1px solid rgba(239,68,68,.2);color:var(--danger)}
+.kyc-icon{font-style:normal}
+
+/* Hero */
+.hero{padding:72px 20px 56px;text-align:center;background:radial-gradient(ellipse 80% 50% at 50% 0,rgba(153,69,255,.1) 0%,transparent 70%)}
+.hero-inner{max-width:680px;margin:0 auto}
+.hero-tag{font-size:12px;color:var(--purple);font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:20px}
+.hero-title{font-size:clamp(32px,5vw,56px);font-weight:800;line-height:1.1;letter-spacing:-.03em;margin-bottom:16px}
+.hero-accent{background:linear-gradient(90deg,var(--accent),#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero-sub{font-size:16px;color:var(--text2);line-height:1.6}
+
+/* Main */
+.main{flex:1;padding:40px 20px}
+.main-inner{max-width:1200px;margin:0 auto}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+.section-title{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.btn-refresh{background:none;border:1px solid var(--border2);color:var(--text2);padding:6px 14px;border-radius:7px;font-size:13px;transition:all .15s}
+.btn-refresh:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.btn-refresh:disabled{opacity:.4;cursor:not-allowed}
+
+/* Grid */
+.props-grid,.loading-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
+
+/* Property card */
+.prop-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:22px;transition:border-color .2s,transform .2s}
+.prop-card:hover{border-color:var(--border2);transform:translateY(-2px)}
+.prop-card.skeleton{height:340px;animation:pulse 1.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:.7}}
+.prop-header{display:flex;align-items:center;gap:8px;margin-bottom:18px}
+.status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.status-dot.active{background:var(--accent)}
+.status-dot.inactive{background:var(--text3)}
+.prop-loc{font-size:12px;color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge-dist{font-size:10px;background:rgba(245,158,11,.15);color:var(--warning);border:1px solid rgba(245,158,11,.3);border-radius:4px;padding:2px 7px;font-weight:600;white-space:nowrap}
+.prop-value{margin-bottom:18px}
+.val-label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);margin-bottom:4px}
+.val-amount{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.prop-progress{margin-bottom:18px}
+.prog-labels{display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:5px}
+.prog-pct{color:var(--text);font-weight:600}
+.prog-track{height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--accent));border-radius:3px;transition:width .5s ease}
+.prop-metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+.metric-box{background:var(--bg3);border-radius:7px;padding:9px 11px}
+.metric-label{display:block;font-size:11px;color:var(--text2);margin-bottom:3px}
+.metric-val{font-size:14px;font-weight:700}
+.prop-actions{display:flex;gap:9px;margin-bottom:14px}
+.btn-buy{flex:1;background:var(--accent);color:#000;font-weight:700;font-size:13px;border:none;border-radius:7px;padding:9px;transition:opacity .15s}
+.btn-buy:hover{opacity:.85}
+.btn-claim{flex:1;background:none;color:var(--text2);font-size:13px;font-weight:600;border:1px solid var(--border2);border-radius:7px;padding:9px;transition:all .15s}
+.btn-claim:hover:not(:disabled){border-color:var(--purple);color:var(--purple)}
+.btn-claim:disabled{opacity:.35;cursor:not-allowed}
+.prop-legal{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2);border-top:1px solid var(--border);padding-top:12px}
+.legal-link{color:var(--purple);font-weight:600;margin-left:auto}
+.legal-hash{font-family:monospace;font-size:10px}
+
+/* Coming soon */
+.coming-soon{max-width:560px;margin:0 auto;padding:48px 0}
+.coming-soon h2{font-size:24px;font-weight:700;margin-bottom:12px}
+.coming-soon p{color:var(--text2);line-height:1.6;margin-bottom:24px}
+.coming-soon-note{font-size:13px!important;color:var(--text3)!important}
+.feature-list{display:flex;flex-direction:column;gap:10px;margin-bottom:24px}
+.feature-item{display:flex;align-items:center;gap:10px;font-size:14px}
+.feature-check{color:var(--accent);font-weight:700;font-size:16px}
+
+/* States */
+.error-banner{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:var(--danger);padding:12px 16px;border-radius:var(--r);font-size:13px;margin-bottom:20px}
+.empty-state{text-align:center;padding:64px 20px;color:var(--text2)}
+.empty-sub{font-size:13px;color:var(--text3);margin-top:8px}
+.empty-sub code{background:var(--bg3);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px}
+
+/* Toast */
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);padding:12px 22px;font-size:13px;font-weight:500;z-index:200;white-space:nowrap}
+
+/* Footer */
+.footer{border-top:1px solid var(--border);padding:24px 20px;margin-top:auto}
+.footer-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.footer-logo{font-weight:700;color:var(--accent);font-size:14px}
+.footer-links{display:flex;gap:16px;font-size:13px}
+.footer-note{font-size:12px;color:var(--text3)}
+
+/* Wallet adapter overrides */
+.wallet-adapter-button{background:var(--purple)!important;border-radius:7px!important;font-size:13px!important;font-weight:700!important;height:36px!important;padding:0 14px!important}
+`;
+
+// ─── Root ────────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const wallets  = [new PhantomWalletAdapter(), new SolflareWalletAdapter()];
+  const endpoint = process.env.NEXT_PUBLIC_RPC_ENDPOINT ?? clusterApiUrl("devnet");
+
+  return (
+    <ConnectionProvider endpoint={endpoint}>
+      <WalletProvider wallets={wallets} autoConnect>
+        <WalletModalProvider>
+          <style>{CSS}</style>
+          <MamposteApp />
+        </WalletModalProvider>
+      </WalletProvider>
+    </ConnectionProvider>
+  );
+}
