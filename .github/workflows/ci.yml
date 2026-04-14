@@ -44,7 +44,7 @@ jobs:
         working-directory: frontend
         continue-on-error: true
 
-  # ─── Job 2: Build y test del programa Anchor ───────────────────────────────
+ # ─── Job 2: Build y test del programa Anchor ───────────────────────────────
   test-program:
     name: Anchor program tests (Token-2022)
     runs-on: ubuntu-latest
@@ -69,15 +69,24 @@ jobs:
 
       - name: Install Solana and Anchor Tools
         run: |
+          # 1. Instalación de Solana
           curl -k -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
-          SOLANA_BIN="$HOME/.local/share/solana/install/active_release/bin"
-          AVM_BIN="$HOME/.avm/bin"
-          echo "$SOLANA_BIN" >> $GITHUB_PATH
-          echo "$AVM_BIN" >> $GITHUB_PATH
-          export PATH="$SOLANA_BIN:$AVM_BIN:$PATH"
+          
+          # 2. MOVER BINARIOS A RUTA DEL SISTEMA
+          # Esto garantiza que 'solana' y 'solana-keygen' funcionen siempre
+          sudo ln -sf $HOME/.local/share/solana/install/active_release/bin/* /usr/local/bin/
+          
+          # 3. Instalación de Anchor
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          sudo ln -sf $HOME/.cargo/bin/avm /usr/local/bin/
+          
           avm install ${{ env.ANCHOR_VERSION }}
           avm use ${{ env.ANCHOR_VERSION }}
+          
+          # Mover el binario de anchor para que sea global
+          sudo ln -sf $HOME/.avm/bin/anchor /usr/local/bin/
+          
+          # Verificación
           solana --version
           anchor --version
 
@@ -86,15 +95,12 @@ jobs:
 
       - name: Generate CI keypair
         run: |
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$PATH"
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
 
       - name: Build programa (Token-2022)
-        run: |
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$PATH"
-          anchor build
+        run: anchor build
 
       - name: Verificar IDL generado
         run: |
@@ -104,9 +110,7 @@ jobs:
             2>/dev/null || echo "IDL parse skipped"
 
       - name: Run all tests
-        run: |
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$PATH"
-          anchor test --skip-deploy
+        run: anchor test --skip-deploy
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
 
