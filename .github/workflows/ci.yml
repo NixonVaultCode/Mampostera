@@ -103,9 +103,17 @@ jobs:
           
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
-
       - name: Build programa (Token-2022)
-        run: anchor build
+        run: |
+          # 1. Asegurar que el usuario actual es dueño de su propio home y carpetas de cargo
+          sudo chown -R $(whoami) $HOME
+          
+          # 2. Crear y dar permisos a la carpeta del SDK de Solana
+          mkdir -p /tmp/solana-sdk
+          sudo chmod -R 777 /tmp/solana-sdk
+          
+          # 3. Ejecutar el build con la ruta forzada
+          anchor build
         env:
           SOLANA_SDK_PATH: "/tmp/solana-sdk"
 
@@ -117,7 +125,9 @@ jobs:
             2>/dev/null || echo "IDL parse skipped"
 
       - name: Run all tests
-        run: anchor test --skip-deploy
+        run: |
+          sudo chown -R $(whoami) $HOME
+          anchor test --skip-deploy
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
           SOLANA_SDK_PATH: "/tmp/solana-sdk"
