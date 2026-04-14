@@ -1,0 +1,42 @@
+{
+  "name": "mampostera",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Real Estate RWA AppChain on Solana — Mampostera · Colombia 🇨🇴",
+  "scripts": {
+    "build":           "anchor build",
+    "test":            "anchor test",
+    "test:local":      "anchor test",
+    "test:fase1":      "anchor test -- --grep 'mampostera v2'",
+    "test:kyc":        "anchor test -- --grep 'KYC'",
+    "test:market":     "anchor test -- --grep 'Mercado Secundario'",
+    "test:governance": "anchor test -- --grep 'Gobernanza'",
+    "test:appchain":   "anchor test -- --grep 'AppChain Fase 4'",
+    "test:all":        "anchor test",
+    "deploy":          "anchor deploy --provider.cluster testnet",
+    "deploy:devnet":   "ts-node scripts/deploy.ts",
+    "deploy:testnet":  "anchor deploy --provider.cluster testnet",
+    "idl":             "anchor idl init --filepath target/idl/mampostera.json $(solana address -k target/deploy/mampostera-keypair.json) --provider.cluster testnet",
+    "idl:copy":        "cp target/idl/mampostera.json frontend/src/utils/mampostera.json",
+    "init:property":   "ANCHOR_PROVIDER_URL=https://api.testnet.solana.com ANCHOR_WALLET=~/.config/solana/id.json npx ts-node scripts/init-property.ts",
+    "deposit:rent":    "ANCHOR_PROVIDER_URL=https://api.testnet.solana.com ANCHOR_WALLET=~/.config/solana/id.json npx ts-node scripts/deposit-rent.ts",
+    "lint":            "eslint . --ext .ts",
+    "audit":           "cargo audit && cd frontend && npm audit",
+    "clean":           "rm -rf target/ .anchor/ frontend/.next/"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@solana/web3.js":   "^1.95.4",
+    "@solana/spl-token": "^0.4.9"
+  },
+  "devDependencies": {
+    "@types/chai":   "^4.3.12",
+    "@types/mocha":  "^10.0.8",
+    "@types/node":   "^20.14.0",
+    "chai":          "^4.4.1",
+    "mocha":         "^10.7.3",
+    "ts-mocha":      "^10.0.0",
+    "ts-node":       "^10.9.2",
+    "typescript":    "^5.5.4"
+  }
+}

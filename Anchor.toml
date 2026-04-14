@@ -1,0 +1,29 @@
+[features]
+seeds     = false   # no activar en producción — feature experimental
+skip-lint = false   # NUNCA en true — lint detecta errores de seguridad críticos
+
+# ── Program IDs ──────────────────────────────────────────────────────────────
+[programs.localnet]
+mampostera = "MAMPoSTERAv2222222222222222222222222222222"
+
+[programs.devnet]
+mampostera = "MAMPoSTERAv2222222222222222222222222222222"
+
+# Actualizar tras: anchor deploy --provider.cluster testnet
+[programs.testnet]
+mampostera = "MAMPoSTERA11111111111111111111111111111111"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "Devnet"
+wallet  = "~/.config/solana/id.json"
+
+[scripts]
+test            = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+deploy          = "anchor deploy --provider.cluster testnet"
+deploy-devnet   = "anchor deploy --provider.cluster devnet"
+
+[workspace]
+members = ["programs/*"]
