@@ -67,36 +67,28 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
-      - name: Install Solana CLI
+      - name: Install Solana and Anchor Tools
         run: |
-          # Usamos parámetros para forzar IPv4 y evitar errores de handshake SSL
-          curl -4 -sSfL --retry 5 --retry-delay 10 https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
+          # Instalación vía Cargo: segura y sin errores de SSL
+          cargo install solana-cli --version ${{ env.SOLANA_VERSION }} --locked
           
-          # Configuramos el PATH
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
-          
-          # Verificamos
-          solana --version
-      - name: Install Anchor
-        run: |
-          cargo install --git https://github.com/coral-xyz/anchor \
-            avm --locked --force 2>/dev/null || true
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm install ${{ env.ANCHOR_VERSION }}
           avm use ${{ env.ANCHOR_VERSION }}
+          
+          solana --version
           anchor --version
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          
 
-      - run: yarn install
+      - name: Install Dependencies
+        run: yarn install
+
       - name: Generate CI keypair
         run: |
-          # Refrescamos el PATH manualmente para que encuentre solana-keygen
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
