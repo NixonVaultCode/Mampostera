@@ -69,25 +69,23 @@ jobs:
 
       - name: Install Solana and Anchor Tools
         run: |
-          # 1. Instalación de Solana
-          curl -k -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
+          # 1. Descargar binario de Solana directamente a una ruta global del sistema
+          # Esto evita pelear con $HOME, carpetas ocultas o PATHs
+          curl -k -L https://github.com/solana-labs/solana/releases/download/v${{ env.SOLANA_VERSION }}/solana-release-x86_64-unknown-linux-gnu.tar.bz2 | tar jxf -
+          sudo cp solana-release/bin/* /usr/bin/
           
-          # 2. MOVER BINARIOS A RUTA DEL SISTEMA
-          # Esto garantiza que 'solana' y 'solana-keygen' funcionen siempre
-          sudo ln -sf $HOME/.local/share/solana/install/active_release/bin/* /usr/local/bin/
-          
-          # 3. Instalación de Anchor
+          # 2. Instalar Anchor (AVM)
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-          sudo ln -sf $HOME/.cargo/bin/avm /usr/local/bin/
+          sudo cp $HOME/.cargo/bin/avm /usr/bin/
           
+          # 3. Instalar la versión de Anchor y mover el binario a ruta global
           avm install ${{ env.ANCHOR_VERSION }}
           avm use ${{ env.ANCHOR_VERSION }}
-          
-          # Mover el binario de anchor para que sea global
-          sudo ln -sf $HOME/.avm/bin/anchor /usr/local/bin/
-          
-          # Verificación
+          sudo cp $HOME/.avm/bin/anchor /usr/bin/
+
+          # 4. Verificación (Si esto falla, el error es físico)
           solana --version
+          solana-keygen --version
           anchor --version
 
       - name: Install Dependencies
