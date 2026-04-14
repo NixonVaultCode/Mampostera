@@ -133,15 +133,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           # Limpio de cache para evitar errores de lockfile
 
+       
       - name: Install frontend dependencies
         run: |
-          # 1. Borramos la línea de civic del package.json para que no la busque
-          sed -i '/@civic\/solana-gateway-react/d' package.json
+          # Esto busca la versión rota y la cambia por "latest" antes de que Yarn la lea
+          sed -i 's/"@civic\/solana-gateway-react": "\^0.9.10"/"@civic\/solana-gateway-react": "latest"/g' package.json
           
-          # 2. Instalamos la versión más reciente ignorando el estado previo
-          yarn add @civic/solana-gateway-react@latest --no-lockfile --non-interactive
-          
-          # 3. Instalamos todo lo demás
+          # Ahora sí instalamos con el archivo corregido
           yarn install --no-lockfile
         working-directory: frontend
         
