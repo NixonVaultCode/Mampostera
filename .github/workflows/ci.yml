@@ -91,24 +91,35 @@ jobs:
       - name: Install Dependencies
         run: yarn install
 
-      - name: Generate CI keypair
+      - name: Generate CI keypair and Force Sync ID
         run: |
+          # 1. Generamos la llave real para este build
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
+          
+          # 2. Obtenemos el ID público de esa llave
+          PROGRAM_ID=$(solana-keygen pubkey /tmp/ci-wallet.json)
+          echo "ID generado: $PROGRAM_ID"
+          
+          # 3. REEMPLAZO FORZADO (Solución al error String Size)
+          # Buscamos declare_id y reemplazamos todo lo que esté entre comillas por el nuevo ID
+          sed -i "s/declare_id!(\".*\")/declare_id!(\"$PROGRAM_ID\")/g" programs/mampostera/src/lib.rs
+          
+          # Actualizamos también el Anchor.toml para que coincida
+          sed -i "s/mampostera = \".*\"/mampostera = \"$PROGRAM_ID\"/g" Anchor.toml
+          
+          # 4. Configuración de entorno
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
 
-      - name: Sync program id
-        run: anchor keys sync
-
       - name: Build programa (Token-2022)
         run: anchor build
+
       - name: Verificar IDL generado
         run: |
           test -f target/idl/mampostera.json && echo "✅ IDL OK"
           cat target/idl/mampostera.json | python3 -c \
             "import sys,json; d=json.load(sys.stdin); print(f'Instrucciones: {len(d[\"instructions\"])}')" \
             2>/dev/null || echo "IDL parse skipped"
-
       - name: Run all tests
         run: anchor test --skip-deploy
         env:
