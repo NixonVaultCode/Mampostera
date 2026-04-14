@@ -97,9 +97,11 @@ jobs:
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
 
+      - name: Sync program id
+        run: anchor keys sync
+
       - name: Build programa (Token-2022)
         run: anchor build
-
       - name: Verificar IDL generado
         run: |
           test -f target/idl/mampostera.json && echo "✅ IDL OK"
