@@ -71,6 +71,8 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+          solana --version
 
       - name: Install Anchor
         run: |
@@ -89,6 +91,8 @@ jobs:
       - run: yarn install
       - name: Generate CI keypair
         run: |
+          # Refrescamos el PATH manualmente para que encuentre solana-keygen
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
