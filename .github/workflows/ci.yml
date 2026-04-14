@@ -135,16 +135,16 @@ jobs:
 
       - name: Install frontend dependencies
         run: |
-          # 1. Eliminamos la línea corrupta del package.json
+          # 1. Borramos la línea de civic del package.json para que no la busque
           sed -i '/@civic\/solana-gateway-react/d' package.json
           
-          # 2. Instalamos la versión más reciente que sí existe
-          yarn add @civic/solana-gateway-react@latest --non-interactive
+          # 2. Instalamos la versión más reciente ignorando el estado previo
+          yarn add @civic/solana-gateway-react@latest --no-lockfile --non-interactive
           
-          # 3. Instalamos el resto de las dependencias
-          yarn install
+          # 3. Instalamos todo lo demás
+          yarn install --no-lockfile
         working-directory: frontend
-
+        
       - name: TypeScript type check
         run: yarn tsc --noEmit
         working-directory: frontend
