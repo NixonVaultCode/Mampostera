@@ -69,23 +69,23 @@ jobs:
 
       - name: Install Solana and Anchor Tools
         run: |
-          # 1. Descargar binario de Solana directamente a una ruta global del sistema
-          # Esto evita pelear con $HOME, carpetas ocultas o PATHs
+          # 1. Descargar y descomprimir el binario oficial
           curl -k -L https://github.com/solana-labs/solana/releases/download/v${{ env.SOLANA_VERSION }}/solana-release-x86_64-unknown-linux-gnu.tar.bz2 | tar jxf -
-          sudo cp solana-release/bin/* /usr/bin/
           
-          # 2. Instalar Anchor (AVM)
+          # 2. Copiar TODO el contenido a la ruta del sistema (con -r para las subcarpetas)
+          sudo cp -r solana-release/bin/* /usr/bin/
+          
+          # 3. Instalar Anchor (AVM)
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           sudo cp $HOME/.cargo/bin/avm /usr/bin/
           
-          # 3. Instalar la versión de Anchor y mover el binario a ruta global
+          # 4. Instalar versión de Anchor y mover el binario
           avm install ${{ env.ANCHOR_VERSION }}
           avm use ${{ env.ANCHOR_VERSION }}
           sudo cp $HOME/.avm/bin/anchor /usr/bin/
 
-          # 4. Verificación (Si esto falla, el error es físico)
+          # 5. Verificación final
           solana --version
-          solana-keygen --version
           anchor --version
 
       - name: Install Dependencies
