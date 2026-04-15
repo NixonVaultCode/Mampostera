@@ -1,8 +1,8 @@
 # =============================================================================
-#  MAMPOSTERA v0.5.7 — CI/CD Pipeline (FIX: Binary Install & Rust 1.80)
+#  MAMPOSTERA v0.5.8 — CI/CD Pipeline (USO DE ACCIONES OFICIALES)
 # =============================================================================
 
-name: Mampostera CI v0.5.7
+name: Mampostera CI v0.5.8
 
 on:
   push:
@@ -14,56 +14,35 @@ env:
   SOLANA_VERSION: "1.18.26"
   ANCHOR_VERSION: "0.30.1"
   NODE_VERSION: "20"
-  RUST_TOOLCHAIN: "1.80.0" # <--- Subimos a 1.80 para soportar nuevas dependencias
+  RUST_TOOLCHAIN: "1.80.0"
 
 jobs:
-  security-audit:
-    name: Security audit (Rust + Node)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Audit Node dependencies
-        run: npm audit --audit-level=high
-        working-directory: frontend
-        continue-on-error: true
-
   test-program:
-    name: Anchor program tests (Token-2022)
+    name: Anchor program tests
     runs-on: ubuntu-latest
-    needs: security-audit
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache Rust / Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v5
-
+      # 1. Instalar Rust de forma profesional
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rust-src
 
-      - name: Install Solana and Anchor Tools
-        run: |
-          # 1. Instalar Solana
-          sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
-          
-          # 2. Instalar Anchor CLI vía binario (EVITA COMPILAR AVM)
-          curl -L https://github.com/coral-xyz/anchor/releases/download/v${{ env.ANCHOR_VERSION }}/anchor-cli-x86_64-unknown-linux-gnu.tar.bz2 | tar xJ
-          mkdir -p $HOME/.local/bin
-          cp ./anchor $HOME/.local/bin/
-          
-          # 3. Configurar Path
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      # 2. Instalar Solana usando una Acción (Evita errores de curl)
+      - name: Install Solana
+        uses: dmanstet/setup-solana@v1.1.1
+        with:
+          solana-version: ${{ env.SOLANA_VERSION }}
 
-      - name: Install Dependencies
+      # 3. Instalar Anchor usando una Acción (Evita errores de xz/tar)
+      - name: Install Anchor
+        uses: bridge-xyz/setup-anchor@v2.0.0
+        with:
+          anchor-version: ${{ env.ANCHOR_VERSION }}
+
+      - name: Install Node Dependencies
         run: yarn install
 
       - name: Generate CI keypair
@@ -73,25 +52,18 @@ jobs:
           sed -i "s/declare_id!(\".*\")/declare_id!(\"$PROGRAM_ID\")/g" programs/mampostera/src/lib.rs
           sed -i "s/mampostera = \".*\"/mampostera = \"$PROGRAM_ID\"/g" Anchor.toml
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
-          solana config set --url localhost
 
-      - name: Build programa Anchor
+      - name: Build & Test
         run: |
+          # Corregir permisos de una vez por todas
           sudo chown -R $(whoami):$(id -gn) $HOME ${{ github.workspace }}
+          
+          # Regenerar lockfile para evitar error v4
           rm -f Cargo.lock
           cargo generate-lockfile
+          
+          # Build y Test
           anchor build
-
-      - name: Run all tests
-        run: anchor test --skip-deploy
+          anchor test --skip-deploy
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mampostera-build-${{ github.sha }}
-          path: |
-            target/idl/mampostera.json
-            target/types/mampostera.ts
