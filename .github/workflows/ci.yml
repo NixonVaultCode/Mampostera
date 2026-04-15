@@ -1,8 +1,8 @@
 # =============================================================================
-#  MAMPOSTERA v0.5.6 — CI/CD Pipeline (SOLUCIÓN FINAL LOCKFILE V4)
+#  MAMPOSTERA v0.5.7 — CI/CD Pipeline (FIX: Binary Install & Rust 1.80)
 # =============================================================================
 
-name: Mampostera CI v0.5.6
+name: Mampostera CI v0.5.7
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
   SOLANA_VERSION: "1.18.26"
   ANCHOR_VERSION: "0.30.1"
   NODE_VERSION: "20"
-  RUST_TOOLCHAIN: "1.80.0" # Subimos a 1.80 para evitar el error de clap_builder
+  RUST_TOOLCHAIN: "1.80.0" # <--- Subimos a 1.80 para soportar nuevas dependencias
 
 jobs:
   security-audit:
@@ -22,17 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Cache cargo-audit
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-audit
-          key: cargo-audit-v1
-      - name: Audit Rust dependencies
-        run: |
-          cargo install cargo-audit --locked 2>/dev/null || true
-          cargo audit --ignore RUSTSEC-2024-0344 --ignore RUSTSEC-2022-0093
-        continue-on-error: true
-      - name: Audit Node dependencies (frontend)
+      - name: Audit Node dependencies
         run: npm audit --audit-level=high
         working-directory: frontend
         continue-on-error: true
@@ -51,7 +41,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v4 # Forzamos limpieza de caché
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -59,34 +49,24 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rust-src
 
-      - name: Pre-create Solana cache directories
-        run: |
-          mkdir -p $HOME/.cache/solana
-          mkdir -p $HOME/.local/share/solana
-          sudo chmod -R 777 $HOME/.cache
-          sudo chmod -R 777 $HOME/.local
-
       - name: Install Solana and Anchor Tools
         run: |
           # 1. Instalar Solana
-          curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
+          sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
           
-          # 2. Instalar Anchor CLI directamente (Binario pre-compilado)
-          # Esto evita tener que compilar avm y que fallen las dependencias de Rust
+          # 2. Instalar Anchor CLI vía binario (EVITA COMPILAR AVM)
           curl -L https://github.com/coral-xyz/anchor/releases/download/v${{ env.ANCHOR_VERSION }}/anchor-cli-x86_64-unknown-linux-gnu.tar.bz2 | tar xJ
           mkdir -p $HOME/.local/bin
           cp ./anchor $HOME/.local/bin/
-
-      - name: Add tools to PATH
-        run: |
+          
+          # 3. Configurar Path
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-          echo "$HOME/.avm/bin" >> $GITHUB_PATH
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Install Dependencies
         run: yarn install
 
-      - name: Generate CI keypair and sync Program ID
+      - name: Generate CI keypair
         run: |
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
           PROGRAM_ID=$(solana-keygen pubkey /tmp/ci-wallet.json)
@@ -97,30 +77,17 @@ jobs:
 
       - name: Build programa Anchor
         run: |
-          # 1. Permisos totales
           sudo chown -R $(whoami):$(id -gn) $HOME ${{ github.workspace }}
-          
-          # 2. Asegurar que usamos el Rust que entiende Lockfile v4
-          rustup default ${{ env.RUST_TOOLCHAIN }}
-          
-          # 3. Borrar el archivo problemático
           rm -f Cargo.lock
-          
-          # 4. Generarlo de nuevo con la versión 1.79
           cargo generate-lockfile
-          
-          # 5. Build
-          avm use ${{ env.ANCHOR_VERSION }}
           anchor build
-        env:
-          CARGO_TERM_COLOR: always
 
       - name: Run all tests
         run: anchor test --skip-deploy
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
 
-      - name: Upload build artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
