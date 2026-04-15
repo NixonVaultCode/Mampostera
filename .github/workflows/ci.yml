@@ -11,12 +11,11 @@ on:
     branches: [main]
 
 env:
-  SOLANA_VERSION: "1.18.26"  # Actualizada para soportar mejor el Rust moderno
+  SOLANA_VERSION: "1.18.26"  # Versión más estable para Rust moderno
   ANCHOR_VERSION:  "0.30.1"
   NODE_VERSION:    "20"
   RUST_TOOLCHAIN:  "1.79.0"  # <--- CRÍTICO: Cambia "stable" por "1.79.0"
-  RUST_TOOLCHAIN:  "1.79.0"  # <--- CAMBIA 'stable' POR ESTO
-
+  
 jobs:
   security-audit:
     name: Security audit (Rust + Node)
