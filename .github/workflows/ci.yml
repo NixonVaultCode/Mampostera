@@ -1,8 +1,8 @@
 # =============================================================================
-#  MAMPOSTERA v0.5.5 — CI/CD Pipeline (FIX: AVM & Permissions)
+#  MAMPOSTERA v0.5.6 — CI/CD Pipeline (SOLUCIÓN FINAL LOCKFILE V4)
 # =============================================================================
 
-name: Mampostera CI v0.5.5
+name: Mampostera CI v0.5.6
 
 on:
   push:
@@ -11,10 +11,10 @@ on:
     branches: [main]
 
 env:
-  SOLANA_VERSION: "1.18.16"
-  ANCHOR_VERSION:  "0.30.1"
-  NODE_VERSION:    "20"
-  RUST_TOOLCHAIN:  "stable"
+  SOLANA_VERSION: "1.18.26"
+  ANCHOR_VERSION: "0.30.1"
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: "1.79.0" # <--- ESTO ES LO QUE MATA EL ERROR V4
 
 jobs:
   security-audit:
@@ -51,14 +51,14 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v3
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v4 # Forzamos limpieza de caché
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rust-src
 
-      # PRE-REQUISITO: Carpetas con permisos totales para evitar Error 13
       - name: Pre-create Solana cache directories
         run: |
           mkdir -p $HOME/.cache/solana
@@ -94,29 +94,25 @@ jobs:
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
 
-      # 1. FIX DE PERMISOS: Aseguramos que el runner sea dueño de su HOME y el workspace
-      - name: Final ownership fix
-        run: sudo chown -R $(whoami):$(id -gn) $HOME ${{ github.workspace }}
-
-      - name: Build programa Anchor (Token-2022)
+      - name: Build programa Anchor
         run: |
-          # 1. Asegurar permisos
+          # 1. Permisos totales
           sudo chown -R $(whoami):$(id -gn) $HOME ${{ github.workspace }}
           
-          # 2. Forzar Toolchain de Rust moderno
-          rustup default 1.79.0
-          rustup component add rust-src
+          # 2. Asegurar que usamos el Rust que entiende Lockfile v4
+          rustup default ${{ env.RUST_TOOLCHAIN }}
           
-          # 3. Configurar AVM
-          avm use ${{ env.ANCHOR_VERSION }}
-          
-          # 4. Limpieza total y regeneración manual
-          rm -rf target/
+          # 3. Borrar el archivo problemático
           rm -f Cargo.lock
+          
+          # 4. Generarlo de nuevo con la versión 1.79
           cargo generate-lockfile
           
-          # 5. Build ignorando el chequeo de versión de Solana si es necesario
+          # 5. Build
+          avm use ${{ env.ANCHOR_VERSION }}
           anchor build
+        env:
+          CARGO_TERM_COLOR: always
 
       - name: Run all tests
         run: anchor test --skip-deploy
@@ -131,7 +127,3 @@ jobs:
           path: |
             target/idl/mampostera.json
             target/types/mampostera.ts
-            .anchor/
-
-  # Los jobs de build-frontend, deploy-devnet y deploy-testnet se mantienen igual
-  # pero asegúrate de que usen la misma lógica de instalación sin el home-override.
