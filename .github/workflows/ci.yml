@@ -1,8 +1,8 @@
 # =============================================================================
-#  MAMPOSTERA v0.5.8 — CI/CD Pipeline (USO DE ACCIONES OFICIALES)
+#  MAMPOSTERA v0.5.9 — CI/CD Pipeline (BACK TO BASICS - NO THIRD PARTY ACTIONS)
 # =============================================================================
 
-name: Mampostera CI v0.5.8
+name: Mampostera CI v0.5.9
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
   SOLANA_VERSION: "1.18.26"
   ANCHOR_VERSION: "0.30.1"
   NODE_VERSION: "20"
-  RUST_TOOLCHAIN: "1.80.0"
+  RUST_TOOLCHAIN: "1.79.0"
 
 jobs:
   test-program:
@@ -23,47 +23,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. Instalar Rust de forma profesional
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rust-src
 
-      # 2. Instalar Solana usando una Acción (Evita errores de curl)
-      - name: Install Solana
-        uses: dmanstet/setup-solana@v1.1.1
-        with:
-          solana-version: ${{ env.SOLANA_VERSION }}
-
-      # 3. Instalar Anchor usando una Acción (Evita errores de xz/tar)
-      - name: Install Anchor
-        uses: bridge-xyz/setup-anchor@v2.0.0
-        with:
-          anchor-version: ${{ env.ANCHOR_VERSION }}
-
-      - name: Install Node Dependencies
-        run: yarn install
-
-      - name: Generate CI keypair
+      - name: Install Dependencies (Linux)
         run: |
-          solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
-          PROGRAM_ID=$(solana-keygen pubkey /tmp/ci-wallet.json)
-          sed -i "s/declare_id!(\".*\")/declare_id!(\"$PROGRAM_ID\")/g" programs/mampostera/src/lib.rs
-          sed -i "s/mampostera = \".*\"/mampostera = \"$PROGRAM_ID\"/g" Anchor.toml
-          echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
+          sudo apt-get update
+          sudo apt-get install -y pkg-config build-essential libudev-dev libssl-dev
+
+      - name: Install Solana CLI
+        run: |
+          # Usamos el instalador oficial con reintentos para evitar el error de SSL
+          curl -sSfL --retry 3 https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor CLI
+        run: |
+          # Instalamos avm pero SIN COMPILAR dependencias pesadas, bajando el binario directo si es posible
+          # O instalando la versión estable que no pide edition2024
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          $HOME/.cargo/bin/avm install ${{ env.ANCHOR_VERSION }}
+          $HOME/.cargo/bin/avm use ${{ env.ANCHOR_VERSION }}
+          echo "$HOME/.avm/bin" >> $GITHUB_PATH
+
+      - name: Install Node Deps
+        run: yarn install
 
       - name: Build & Test
         run: |
-          # Corregir permisos de una vez por todas
+          # 1. Fix de permisos para evitar el Error 13
           sudo chown -R $(whoami):$(id -gn) $HOME ${{ github.workspace }}
           
-          # Regenerar lockfile para evitar error v4
+          # 2. Keypair para el deploy local de los tests
+          solana-keygen new --no-bip39-passphrase --outfile /tmp/id.json
+          
+          # 3. Limpieza de lockfile para evitar el error de versión v4
           rm -f Cargo.lock
           cargo generate-lockfile
           
-          # Build y Test
+          # 4. Build y Test
           anchor build
           anchor test --skip-deploy
         env:
-          ANCHOR_WALLET: /tmp/ci-wallet.json
+          ANCHOR_WALLET: /tmp/id.json
