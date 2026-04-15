@@ -11,10 +11,10 @@ on:
     branches: [main]
 
 env:
-  SOLANA_VERSION: "1.18.16"
+  SOLANA_VERSION: "1.18.26"  # Subimos un poco para mejor compatibilidad
   ANCHOR_VERSION:  "0.30.1"
   NODE_VERSION:    "20"
-  RUST_TOOLCHAIN:  "stable"
+  RUST_TOOLCHAIN:  "1.79.0"  # <--- CAMBIA 'stable' POR ESTO
 
 jobs:
   security-audit:
