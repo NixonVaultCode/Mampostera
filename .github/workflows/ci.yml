@@ -14,7 +14,7 @@ env:
   SOLANA_VERSION: "1.18.26"
   ANCHOR_VERSION: "0.30.1"
   NODE_VERSION: "20"
-  RUST_TOOLCHAIN: "1.79.0" # <--- ESTO ES LO QUE MATA EL ERROR V4
+  RUST_TOOLCHAIN: "1.80.0" # Subimos a 1.80 para evitar el error de clap_builder
 
 jobs:
   security-audit:
@@ -68,13 +68,14 @@ jobs:
 
       - name: Install Solana and Anchor Tools
         run: |
-          curl -k -L https://github.com/solana-labs/solana/releases/download/v${{ env.SOLANA_VERSION }}/solana-release-x86_64-unknown-linux-gnu.tar.bz2 | tar jxf - -C /tmp
-          mkdir -p $HOME/.local/bin
-          cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
+          # 1. Instalar Solana
+          curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install | sh
           
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-          $HOME/.cargo/bin/avm install ${{ env.ANCHOR_VERSION }}
-          $HOME/.cargo/bin/avm use ${{ env.ANCHOR_VERSION }}
+          # 2. Instalar Anchor CLI directamente (Binario pre-compilado)
+          # Esto evita tener que compilar avm y que fallen las dependencias de Rust
+          curl -L https://github.com/coral-xyz/anchor/releases/download/v${{ env.ANCHOR_VERSION }}/anchor-cli-x86_64-unknown-linux-gnu.tar.bz2 | tar xJ
+          mkdir -p $HOME/.local/bin
+          cp ./anchor $HOME/.local/bin/
 
       - name: Add tools to PATH
         run: |
