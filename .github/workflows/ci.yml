@@ -98,23 +98,25 @@ jobs:
       - name: Final ownership fix
         run: sudo chown -R $(whoami):$(id -gn) $HOME ${{ github.workspace }}
 
-      # 2. BUILD CON REGENERACIÓN DE LOCKFILE
       - name: Build programa Anchor (Token-2022)
         run: |
-          # Asegurar versión de Anchor
+          # 1. Asegurar permisos
+          sudo chown -R $(whoami):$(id -gn) $HOME ${{ github.workspace }}
+          
+          # 2. Forzar Toolchain de Rust moderno
+          rustup default 1.79.0
+          rustup component add rust-src
+          
+          # 3. Configurar AVM
           avm use ${{ env.ANCHOR_VERSION }}
           
-          # Borrar el lockfile "del futuro" v4
+          # 4. Limpieza total y regeneración manual
+          rm -rf target/
           rm -f Cargo.lock
-          
-          # Generar un lockfile compatible con el Rust del Runner
           cargo generate-lockfile
           
-          # Compilar
+          # 5. Build ignorando el chequeo de versión de Solana si es necesario
           anchor build
-        env:
-          # Variable de seguridad para compatibilidad de versiones
-          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: allow
 
       - name: Run all tests
         run: anchor test --skip-deploy
