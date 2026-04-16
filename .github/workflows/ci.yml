@@ -1,9 +1,11 @@
 # =============================================================================
 #  MAMPOSTERA v0.5.4 — CI/CD Pipeline
-#  Fixes aplicados:
-#    - Permission denied en platform-tools (cargo-build-sbf)
-#    - "Anchor version not set" (avm PATH no disponible en mismo step)
-#    - Binarios instalados sin sudo, en rutas del usuario
+#  Fixes:
+#    v1: Permission denied en platform-tools
+#    v2: "Anchor version not set" (GITHUB_PATH en mismo step)
+#    v3: cp sin -r omitía subdirectorios de Solana
+#    v4: AVM con --tag fallaba compilando anchor-cli desde git
+#        → ahora instala anchor-cli directo desde crates.io (más rápido y estable)
 # =============================================================================
 
 name: Mampostera CI v0.5
@@ -54,66 +56,59 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin/anchor
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v3
+          key: ${{ runner.os }}-cargo-anchor-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
-      # ── PASO CLAVE: instalar Solana + Anchor en un solo step con export ──
-      # No usamos sudo en ningún momento.
-      # Usamos export PATH dentro del mismo step para que avm/anchor
-      # estén disponibles inmediatamente sin esperar al siguiente step.
-      - name: Install Solana CLI
+      # Crear dirs con permisos del usuario ANTES de instalar nada
+      - name: Pre-create Solana dirs
         run: |
-          # Crear dirs con permisos del usuario actual ANTES de todo
           mkdir -p $HOME/.local/bin
           mkdir -p $HOME/.cache/solana
           mkdir -p $HOME/.local/share/solana
-          chmod 755 $HOME/.cache/solana
+          chmod -R 755 $HOME/.cache/solana
+          chmod -R 755 $HOME/.local/share/solana
 
-          # Descargar Solana sin sudo
-          curl -sSfL "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
+      - name: Install Solana CLI
+        run: |
+          curl -sSfL \
+            "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
             | tar -jxf - -C /tmp
 
-          # Instalar en home del usuario (sin sudo)
+          # -r para incluir subdirectorios deps/ perf-libs/ sdk/
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
 
-          # Exportar PATH en este step Y en los siguientes
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-          # Verificar instalación con ruta absoluta
           $HOME/.local/bin/solana --version
 
-      - name: Install Anchor via AVM
+      # Instalar anchor-cli directamente desde crates.io
+      # SIN AVM, SIN compilar desde git — más rápido y sin errores de tipo Rust
+      - name: Install Anchor CLI
         run: |
-          # Instalar avm sin sudo
-          cargo install --git https://github.com/coral-xyz/anchor avm \
-            --tag v0.30.1 --locked --force 2>/dev/null || \
-          cargo install --git https://github.com/coral-xyz/anchor avm \
-            --locked --force
-
-          # Rutas del usuario — export para uso inmediato en este step
-          export PATH="$HOME/.cargo/bin:$PATH"
-
-          # Instalar y activar la versión de Anchor
-          avm install ${ANCHOR_VERSION}
-          avm use ${ANCHOR_VERSION}
-
-          # Verificar que el symlink se creó correctamente
-          ls -la $HOME/.avm/bin/anchor
-          $HOME/.avm/bin/anchor --version
-
-          # Persistir en steps siguientes
-          echo "$HOME/.avm/bin" >> $GITHUB_PATH
+          # Verificar si ya está cacheado
+          if [ -f "$HOME/.cargo/bin/anchor" ]; then
+            echo "Anchor ya está cacheado"
+            anchor --version
+          else
+            echo "Instalando anchor-cli v${ANCHOR_VERSION} desde crates.io..."
+            cargo install anchor-cli \
+              --version ${ANCHOR_VERSION} \
+              --locked \
+              --force
+          fi
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          $HOME/.cargo/bin/anchor --version
 
-      - name: Verify tools
+      - name: Verify all tools
         run: |
           echo "=== Solana ===" && solana --version
           echo "=== Anchor ===" && anchor --version
+          echo "=== Rust ===" && rustc --version
           echo "=== Cargo ===" && cargo --version
 
       - name: Install Node dependencies
@@ -132,11 +127,9 @@ jobs:
 
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
-
           solana config set --url localhost
 
-      # FIX permisos: garantizar que ~/.cache/solana pertenece al usuario
-      # justo antes del build para que cargo-build-sbf pueda escribir ahí
+      # Garantizar que ~/.cache/solana pertenece al usuario antes del build
       - name: Fix home ownership before build
         run: |
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.cache" || true
@@ -227,23 +220,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Solana CLI
+      - name: Pre-create Solana dirs
         run: |
           mkdir -p $HOME/.local/bin $HOME/.cache/solana
-          curl -sSfL "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
+          chmod -R 755 $HOME/.cache/solana
+
+      - name: Install Solana CLI
+        run: |
+          curl -sSfL \
+            "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
             | tar -jxf - -C /tmp
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install Anchor
+      - name: Install Anchor CLI
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm \
-            --locked --force 2>/dev/null || true
-          export PATH="$HOME/.cargo/bin:$PATH"
-          avm install ${ANCHOR_VERSION}
-          avm use ${ANCHOR_VERSION}
-          echo "$HOME/.avm/bin" >> $GITHUB_PATH
+          cargo install anchor-cli \
+            --version ${ANCHOR_VERSION} \
+            --locked \
+            --force
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          $HOME/.cargo/bin/anchor --version
 
       - name: Restore deploy wallet
         run: |
@@ -285,23 +282,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Solana CLI
+      - name: Pre-create Solana dirs
         run: |
           mkdir -p $HOME/.local/bin $HOME/.cache/solana
-          curl -sSfL "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
+          chmod -R 755 $HOME/.cache/solana
+
+      - name: Install Solana CLI
+        run: |
+          curl -sSfL \
+            "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
             | tar -jxf - -C /tmp
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install Anchor
+      - name: Install Anchor CLI
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm \
-            --locked --force 2>/dev/null || true
-          export PATH="$HOME/.cargo/bin:$PATH"
-          avm install ${ANCHOR_VERSION}
-          avm use ${ANCHOR_VERSION}
-          echo "$HOME/.avm/bin" >> $GITHUB_PATH
+          cargo install anchor-cli \
+            --version ${ANCHOR_VERSION} \
+            --locked \
+            --force
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          $HOME/.cargo/bin/anchor --version
 
       - name: Restore testnet wallet
         run: |
