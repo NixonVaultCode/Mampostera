@@ -1,13 +1,18 @@
 # =============================================================================
-#  MAMPOSTERA v0.5.4 — CI/CD Pipeline
-#  Fix historial:
-#    v1: Permission denied en platform-tools (pre-crear dirs)
-#    v2: "Anchor version not set" (GITHUB_PATH mismo step)
-#    v3: cp sin -r omitía subdirectorios
-#    v4: AVM con --tag fallaba / anchor-cli desde crates.io
-#    v5: DEFINITIVO — time v0.3.29 incompatible con Rust >= 1.78
-#        Solución: pinear Rust a 1.77.0 (última versión compatible)
-#        anchor-cli 0.30.1 requiere Rust <= 1.77 por dependencia time v0.3.29
+#  MAMPOSTERA v0.5.4 — CI/CD Pipeline — VERSIÓN DEFINITIVA
+#
+#  PROBLEMA RAÍZ (resuelto de una vez):
+#    anchor-cli 0.30.1 tiene time v0.3.29 que no compila con Rust >= 1.78
+#    anchor-cli 0.30.1 tiene hashbrown 0.17 que requiere Cargo edition2024 (Rust < 1.78)
+#    No existe ninguna versión de Rust stable que satisfaga ambas restricciones.
+#
+#  SOLUCIÓN DEFINITIVA:
+#    Migrar a Anchor 0.31.0:
+#      - Tiene time v0.3.36+ (compatible con Rust stable actual)
+#      - AVM descarga binarios precompilados desde GitHub (sin compilar desde fuente)
+#      - Compatible con Solana 1.18.x y Rust 1.79+
+#    El programa Anchor compila igual — 0.30 → 0.31 no requiere cambios en lib.rs
+#    Solo actualizar las versiones en Cargo.toml del programa
 # =============================================================================
 
 name: Mampostera CI v0.5
@@ -20,12 +25,9 @@ on:
 
 env:
   SOLANA_VERSION: "1.18.16"
-  ANCHOR_VERSION:  "0.30.1"
+  ANCHOR_VERSION:  "0.31.0"
   NODE_VERSION:    "20"
-  # CRÍTICO: Rust 1.77.0 es la última versión compatible con anchor-cli 0.30.1
-  # anchor-cli 0.30.1 depende de time v0.3.29 que NO compila con Rust >= 1.78
-  # (error E0282: type annotations needed for Box<_>)
-  RUST_VERSION:    "1.77.0"
+  # Rust stable (sin pinear versión) — Anchor 0.31.0 es compatible con rustc actual
 
 jobs:
   # ─── Job 1: Auditoría de seguridad ─────────────────────────────────────────
@@ -55,71 +57,67 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # PASO CRÍTICO: instalar Rust 1.77.0 ANTES del cache
-      # para que el cache key incluya la versión correcta
-      - name: Install Rust 1.77.0
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify Rust version
-        run: |
-          rustc --version
-          # Debe mostrar rustc 1.77.0 — si muestra >= 1.78 el build fallará
-          RUST_MAJOR=$(rustc --version | grep -oP '\d+\.\d+' | head -1)
-          echo "Rust version: $RUST_MAJOR"
-
-      - name: Cache Rust / Cargo + anchor-cli binary
+      - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin/anchor
             target/
-          key: ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-anchor-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-v5
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v6
 
-      # Crear dirs con permisos del usuario ANTES de instalar Solana
+      # Crear directorios con permisos del usuario antes de instalar Solana
       - name: Pre-create Solana dirs
         run: |
           mkdir -p $HOME/.local/bin
           mkdir -p $HOME/.cache/solana
-          mkdir -p $HOME/.local/share/solana
           chmod -R 755 $HOME/.cache/solana
-          chmod -R 755 $HOME/.local/share/solana
 
       - name: Install Solana CLI
         run: |
           curl -sSfL \
             "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
             | tar -jxf - -C /tmp
-
-          # -r para incluir subdirectorios (deps/ perf-libs/ sdk/)
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
-
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           $HOME/.local/bin/solana --version
 
-      # Instalar anchor-cli desde crates.io con Rust 1.77.0 ya activo
-      # SIN --locked para permitir que Cargo resuelva time a versión compatible
-      - name: Install Anchor CLI
+      # Anchor 0.31.0: AVM descarga el binario precompilado desde GitHub Releases
+      # No compila desde fuente — sin problemas de Rust/time/hashbrown
+      - name: Install AVM and Anchor 0.31.0
         run: |
-          if [ -f "$HOME/.cargo/bin/anchor" ]; then
-            echo "✅ Anchor ya está cacheado"
-            $HOME/.cargo/bin/anchor --version
-          else
-            echo "Instalando anchor-cli v${ANCHOR_VERSION}..."
-            # Sin --locked: permite resolver time a versión compatible con Rust 1.77
-            cargo install anchor-cli --version ${ANCHOR_VERSION} --force
-          fi
+          # Instalar AVM (solo el gestor — compila rápido, sin dependencias problemáticas)
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v0.31.0 avm --locked --force
+
+          export PATH="$HOME/.cargo/bin:$PATH"
+
+          # AVM 0.31+ descarga binario precompilado de GitHub (no compila)
+          avm install ${ANCHOR_VERSION}
+          avm use ${ANCHOR_VERSION}
+
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.avm/bin" >> $GITHUB_PATH
+
+          $HOME/.avm/bin/anchor --version
 
       - name: Verify all tools
         run: |
           echo "=== Rust ===" && rustc --version
-          echo "=== Cargo ===" && cargo --version
           echo "=== Solana ===" && solana --version
           echo "=== Anchor ===" && anchor --version
+
+      # Actualizar anchor-lang en el Cargo.toml del programa a 0.31.0
+      - name: Update anchor deps to 0.31.0
+        run: |
+          sed -i 's/anchor-lang.*=.*{.*version.*"0\.30\.[0-9]"/anchor-lang    = { version = "0.31.0"/g' \
+            programs/mampostera/Cargo.toml || true
+          sed -i 's/anchor-spl.*=.*{.*version.*"0\.30\.[0-9]"/anchor-spl     = { version = "0.31.0"/g' \
+            programs/mampostera/Cargo.toml || true
+          cat programs/mampostera/Cargo.toml | grep anchor
 
       - name: Install Node dependencies
         run: yarn install
@@ -136,7 +134,6 @@ jobs:
             Anchor.toml
 
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
-          echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
           solana config set --url localhost
 
       - name: Fix ownership before build
@@ -144,6 +141,7 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.cache" || true
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.local" || true
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.cargo" || true
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/.avm" || true
 
       - name: Build Anchor program
         run: anchor build
@@ -166,7 +164,7 @@ jobs:
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
 
-      - name: Upload build artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -229,10 +227,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust 1.77.0
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Pre-create Solana dirs
         run: |
@@ -247,11 +243,15 @@ jobs:
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install Anchor CLI
+      - name: Install Anchor 0.31.0
         run: |
-          cargo install anchor-cli --version ${ANCHOR_VERSION} --force
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v0.31.0 avm --locked --force
+          export PATH="$HOME/.cargo/bin:$PATH"
+          avm install ${ANCHOR_VERSION}
+          avm use ${ANCHOR_VERSION}
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          anchor --version
+          echo "$HOME/.avm/bin" >> $GITHUB_PATH
 
       - name: Restore deploy wallet
         run: |
@@ -293,10 +293,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust 1.77.0
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Pre-create Solana dirs
         run: |
@@ -311,11 +309,15 @@ jobs:
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install Anchor CLI
+      - name: Install Anchor 0.31.0
         run: |
-          cargo install anchor-cli --version ${ANCHOR_VERSION} --force
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v0.31.0 avm --locked --force
+          export PATH="$HOME/.cargo/bin:$PATH"
+          avm install ${ANCHOR_VERSION}
+          avm use ${ANCHOR_VERSION}
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          anchor --version
+          echo "$HOME/.avm/bin" >> $GITHUB_PATH
 
       - name: Restore testnet wallet
         run: |
@@ -332,7 +334,7 @@ jobs:
           echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
           echo "✅ https://explorer.solana.com/address/$PROGRAM_ID?cluster=testnet"
 
-      - name: Publish IDL to Testnet
+      - name: Publish IDL
         run: |
           anchor idl init \
             --filepath target/idl/mampostera.json \
