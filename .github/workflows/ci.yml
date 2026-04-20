@@ -96,13 +96,15 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
 
           # AVM 0.31+ descarga binario precompilado de GitHub (no compila)
-          avm install ${ANCHOR_VERSION}
-          avm use ${ANCHOR_VERSION}
+          # avm install descarga el binario anchor en ~/.cargo/bin/
+          # No usa ~/.avm/bin/ cuando se instala con --tag desde git
+          avm install ${ANCHOR_VERSION} || true
+          avm use ${ANCHOR_VERSION} || true
 
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          echo "$HOME/.avm/bin" >> $GITHUB_PATH
 
-          $HOME/.avm/bin/anchor --version
+          # El binario anchor ya está en ~/.cargo/bin/ desde la instalación con --tag
+          $HOME/.cargo/bin/anchor --version
 
       - name: Verify all tools
         run: |
@@ -141,7 +143,7 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.cache" || true
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.local" || true
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.cargo" || true
-          sudo chown -R "$(id -u):$(id -g)" "$HOME/.avm" || true
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/.avm" 2>/dev/null || true
 
       - name: Build Anchor program
         run: anchor build
@@ -248,10 +250,9 @@ jobs:
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag v0.31.0 avm --locked --force
           export PATH="$HOME/.cargo/bin:$PATH"
-          avm install ${ANCHOR_VERSION}
-          avm use ${ANCHOR_VERSION}
+          avm install ${ANCHOR_VERSION} || true
+          avm use ${ANCHOR_VERSION} || true
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          echo "$HOME/.avm/bin" >> $GITHUB_PATH
 
       - name: Restore deploy wallet
         run: |
@@ -314,10 +315,9 @@ jobs:
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag v0.31.0 avm --locked --force
           export PATH="$HOME/.cargo/bin:$PATH"
-          avm install ${ANCHOR_VERSION}
-          avm use ${ANCHOR_VERSION}
+          avm install ${ANCHOR_VERSION} || true
+          avm use ${ANCHOR_VERSION} || true
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          echo "$HOME/.avm/bin" >> $GITHUB_PATH
 
       - name: Restore testnet wallet
         run: |
