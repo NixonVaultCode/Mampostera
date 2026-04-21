@@ -1,18 +1,17 @@
 # =============================================================================
-#  MAMPOSTERA v0.5.4 — CI/CD Pipeline — VERSIÓN DEFINITIVA
+#  MAMPOSTERA v0.5.4 — CI/CD Pipeline — VERSIÓN DEFINITIVA COMPLETA
 #
-#  PROBLEMA RAÍZ (resuelto de una vez):
-#    anchor-cli 0.30.1 tiene time v0.3.29 que no compila con Rust >= 1.78
-#    anchor-cli 0.30.1 tiene hashbrown 0.17 que requiere Cargo edition2024 (Rust < 1.78)
-#    No existe ninguna versión de Rust stable que satisfaga ambas restricciones.
-#
-#  SOLUCIÓN DEFINITIVA:
-#    Migrar a Anchor 0.31.0:
-#      - Tiene time v0.3.36+ (compatible con Rust stable actual)
-#      - AVM descarga binarios precompilados desde GitHub (sin compilar desde fuente)
-#      - Compatible con Solana 1.18.x y Rust 1.79+
-#    El programa Anchor compila igual — 0.30 → 0.31 no requiere cambios en lib.rs
-#    Solo actualizar las versiones en Cargo.toml del programa
+#  Fixes acumulados:
+#  1. Permission denied platform-tools → pre-crear dirs sin sudo
+#  2. Anchor version not set → PATH separado por steps
+#  3. cp sin -r → cp -r para subdirectorios de Solana
+#  4. AVM --tag / anchor-cli no compila → anchor-cli 0.31.0 con AVM
+#  5. time v0.3.29 + hashbrown edition2024 → Anchor 0.31.0 (binario precompilado)
+#  6. .avm/bin/anchor no existe → binario en .cargo/bin/
+#  7. zeroize conflict → NO modificar Cargo.toml del programa
+#  8. Cargo.lock v4 incompatible → eliminar antes del build
+#  9. solana-program dep directa → remover con sed antes del build
+# 10. anchor-lang vs CLI version mismatch → [toolchain] en Anchor.toml
 # =============================================================================
 
 name: Mampostera CI v0.5
@@ -27,7 +26,6 @@ env:
   SOLANA_VERSION: "1.18.16"
   ANCHOR_VERSION:  "0.31.0"
   NODE_VERSION:    "20"
-  # Rust stable (sin pinear versión) — Anchor 0.31.0 es compatible con rustc actual
 
 jobs:
   # ─── Job 1: Auditoría de seguridad ─────────────────────────────────────────
@@ -67,9 +65,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-v6
+          key: ${{ runner.os }}-cargo-${{ env.ANCHOR_VERSION }}-v7
 
-      # Crear directorios con permisos del usuario antes de instalar Solana
       - name: Pre-create Solana dirs
         run: |
           mkdir -p $HOME/.local/bin
@@ -85,42 +82,30 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           $HOME/.local/bin/solana --version
 
-      # Anchor 0.31.0: AVM descarga el binario precompilado desde GitHub Releases
-      # No compila desde fuente — sin problemas de Rust/time/hashbrown
-      - name: Install AVM and Anchor 0.31.0
+      # AVM 0.31.0 instala anchor como binario precompilado desde GitHub Releases
+      # El binario queda en ~/.cargo/bin/anchor (NO en ~/.avm/bin/)
+      - name: Install AVM + Anchor CLI 0.31.0
         run: |
-          # Instalar AVM (solo el gestor — compila rápido, sin dependencias problemáticas)
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag v0.31.0 avm --locked --force
-
           export PATH="$HOME/.cargo/bin:$PATH"
-
-          # AVM 0.31+ descarga binario precompilado de GitHub (no compila)
-          # avm install descarga el binario anchor en ~/.cargo/bin/
-          # No usa ~/.avm/bin/ cuando se instala con --tag desde git
-          avm install ${ANCHOR_VERSION} || true
-          avm use ${ANCHOR_VERSION} || true
-
+          avm install ${ANCHOR_VERSION}
+          avm use ${ANCHOR_VERSION}
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-          # El binario anchor ya está en ~/.cargo/bin/ desde la instalación con --tag
           $HOME/.cargo/bin/anchor --version
 
       - name: Verify all tools
         run: |
-          echo "=== Rust ===" && rustc --version
-          echo "=== Solana ===" && solana --version
-          echo "=== Anchor ===" && anchor --version
-
-      # anchor-lang/anchor-spl 0.30.1 en el programa se mantienen intactos.
-      # anchor-cli 0.31.0 (el binario) es compatible con programas que usan anchor-lang 0.30.x
-      # NO modificar el Cargo.toml del programa — anchor-spl 0.31 requiere Solana 2.x (incompatible)
+          echo "Rust:   $(rustc --version)"
+          echo "Solana: $(solana --version)"
+          echo "Anchor: $(anchor --version)"
 
       - name: Install Node dependencies
         run: yarn install
 
-      - name: Generate CI keypair and sync Program ID
+      - name: Prepare build environment
         run: |
+          # ── Generar keypair CI y sincronizar Program ID ──────────────────
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
           PROGRAM_ID=$(solana-keygen pubkey /tmp/ci-wallet.json)
           echo "Program ID: $PROGRAM_ID"
@@ -133,12 +118,32 @@ jobs:
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
 
-      - name: Fix ownership before build
+          # ── Fix 10: alinear versión CLI en Anchor.toml ───────────────────
+          # Evita el warning "anchor-lang version != CLI version"
+          if grep -q "\[toolchain\]" Anchor.toml; then
+            sed -i 's/anchor_version = .*/anchor_version = "0.31.0"/' Anchor.toml
+          else
+            printf '\n[toolchain]\nanchor_version = "0.31.0"\n' >> Anchor.toml
+          fi
+
+          # ── Fix 9: eliminar solana-program como dep directa ──────────────
+          # anchor-lang ya lo re-exporta; tenerlo duplicado causa conflictos
+          sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
+
+          # ── Fix 8: eliminar Cargo.lock incompatible ───────────────────────
+          # Cargo.lock v4 se genera con nightly y no es legible por stable
+          rm -f Cargo.lock programs/mampostera/Cargo.lock 2>/dev/null || true
+
+          echo "=== Anchor.toml ==="
+          cat Anchor.toml
+          echo "=== programs/mampostera/Cargo.toml ==="
+          cat programs/mampostera/Cargo.toml
+
+      - name: Fix home ownership before build
         run: |
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.cache" || true
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.local" || true
           sudo chown -R "$(id -u):$(id -g)" "$HOME/.cargo" || true
-          sudo chown -R "$(id -u):$(id -g)" "$HOME/.avm" 2>/dev/null || true
 
       - name: Build Anchor program
         run: anchor build
@@ -151,7 +156,7 @@ jobs:
           import json
           d = json.load(open('target/idl/mampostera.json'))
           print(f'Instrucciones: {len(d[\"instructions\"])}')
-          " 2>/dev/null || echo "IDL parse skipped"
+          " 2>/dev/null || true
           else
             echo "⚠️ IDL no encontrado"
           fi
@@ -240,14 +245,24 @@ jobs:
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install Anchor 0.31.0
+      - name: Install AVM + Anchor CLI 0.31.0
         run: |
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag v0.31.0 avm --locked --force
           export PATH="$HOME/.cargo/bin:$PATH"
-          avm install ${ANCHOR_VERSION} || true
-          avm use ${ANCHOR_VERSION} || true
+          avm install ${ANCHOR_VERSION}
+          avm use ${ANCHOR_VERSION}
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Prepare Cargo.toml for deploy
+        run: |
+          sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
+          rm -f Cargo.lock 2>/dev/null || true
+          if grep -q "\[toolchain\]" Anchor.toml; then
+            sed -i 's/anchor_version = .*/anchor_version = "0.31.0"/' Anchor.toml
+          else
+            printf '\n[toolchain]\nanchor_version = "0.31.0"\n' >> Anchor.toml
+          fi
 
       - name: Restore deploy wallet
         run: |
@@ -305,14 +320,24 @@ jobs:
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install Anchor 0.31.0
+      - name: Install AVM + Anchor CLI 0.31.0
         run: |
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag v0.31.0 avm --locked --force
           export PATH="$HOME/.cargo/bin:$PATH"
-          avm install ${ANCHOR_VERSION} || true
-          avm use ${ANCHOR_VERSION} || true
+          avm install ${ANCHOR_VERSION}
+          avm use ${ANCHOR_VERSION}
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Prepare Cargo.toml for deploy
+        run: |
+          sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
+          rm -f Cargo.lock 2>/dev/null || true
+          if grep -q "\[toolchain\]" Anchor.toml; then
+            sed -i 's/anchor_version = .*/anchor_version = "0.31.0"/' Anchor.toml
+          else
+            printf '\n[toolchain]\nanchor_version = "0.31.0"\n' >> Anchor.toml
+          fi
 
       - name: Restore testnet wallet
         run: |
