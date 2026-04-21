@@ -112,14 +112,9 @@ jobs:
           echo "=== Solana ===" && solana --version
           echo "=== Anchor ===" && anchor --version
 
-      # Actualizar anchor-lang en el Cargo.toml del programa a 0.31.0
-      - name: Update anchor deps to 0.31.0
-        run: |
-          sed -i 's/anchor-lang.*=.*{.*version.*"0\.30\.[0-9]"/anchor-lang    = { version = "0.31.0"/g' \
-            programs/mampostera/Cargo.toml || true
-          sed -i 's/anchor-spl.*=.*{.*version.*"0\.30\.[0-9]"/anchor-spl     = { version = "0.31.0"/g' \
-            programs/mampostera/Cargo.toml || true
-          cat programs/mampostera/Cargo.toml | grep anchor
+      # anchor-lang/anchor-spl 0.30.1 en el programa se mantienen intactos.
+      # anchor-cli 0.31.0 (el binario) es compatible con programas que usan anchor-lang 0.30.x
+      # NO modificar el Cargo.toml del programa — anchor-spl 0.31 requiere Solana 2.x (incompatible)
 
       - name: Install Node dependencies
         run: yarn install
