@@ -1,55 +1,41 @@
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════
 #  MAMPOSTERA — .gitignore
-#  REGLA DE ORO: NUNCA commitear keypairs, secrets ni .env
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════
 
-# ─── SEGURIDAD CRÍTICA: keypairs y wallets ───────────────────
+# Keypairs — NUNCA commitear
 *.json
 !package.json
 !tsconfig*.json
 !package-lock.json
 !yarn.lock
-
-# Keypairs específicos
 *-keypair.json
 id.json
 wallet.json
-deployer.json
-authority.json
-*.keypair
 
-# Variables de entorno
+# Secrets
 .env
 .env.local
-.env.development
-.env.production
-.env*.local
-*.env
+.env.*
 
-# ─── Anchor / Solana ─────────────────────────────────────────
+# Anchor / Solana / Rust
 .anchor/
 target/
 **/*.so
 
-# ─── Node ────────────────────────────────────────────────────
+# CRÍTICO: Cargo.lock generado con nightly (versión 4)
+# incompatible con Rust stable — el CI lo regenera automáticamente
+Cargo.lock
+
+# Node
 node_modules/
 frontend/node_modules/
-.pnp
-.pnp.js
 
-# ─── Next.js ─────────────────────────────────────────────────
+# Next.js
 frontend/.next/
 frontend/out/
 frontend/build/
 
-# ─── Sistema ─────────────────────────────────────────────────
+# Sistema
 .DS_Store
 Thumbs.db
 *.log
-*.tmp
-
-# ─── IDEs ────────────────────────────────────────────────────
-.vscode/settings.json
-.idea/
-*.swp
-*.swo
