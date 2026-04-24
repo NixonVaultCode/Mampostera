@@ -25,6 +25,7 @@ target/
 # CRÍTICO: Cargo.lock generado con nightly (versión 4)
 # incompatible con Rust stable — el CI lo regenera automáticamente
 Cargo.lock
+**/Cargo.lock
 
 # Node
 node_modules/
