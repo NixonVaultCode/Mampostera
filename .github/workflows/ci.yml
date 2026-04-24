@@ -34,12 +34,6 @@ jobs:
 
       # CRÍTICO: debe ser el PRIMER step después de checkout
       # El Cargo.lock del repo es versión 4 (nightly) — stable no puede leerlo
-      - name: Delete all Cargo.lock v4 files
-        run: |
-          find . -name "Cargo.lock" -delete
-          echo "✅ Todos los Cargo.lock eliminados"
-          find . -name "Cargo.lock" 2>/dev/null || echo "✅ Confirmado: ninguno existe" 
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
@@ -50,7 +44,14 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target/
-          key: ${{ runner.os }}-anchor031-${{ hashFiles('programs/**/Cargo.toml') }}-v8
+          key: ${{ runner.os }}-anchor031-${{ hashFiles('programs/**/Cargo.toml') }}-v9
+
+      # Eliminar DESPUÉS del cache restore — el cache puede restaurar Cargo.lock v4
+      - name: Delete all Cargo.lock v4 files
+        run: |
+          find . -name "Cargo.lock" -delete 2>/dev/null || true
+          echo "✅ Cargo.lock eliminados post-cache"
+          ls -la Cargo.lock 2>/dev/null && echo "⚠️ Sigue existiendo" || echo "✅ No existe" 
 
       - name: Pre-create Solana dirs
         run: |
@@ -91,6 +92,8 @@ jobs:
           sed -i "s/mampostera = \".*\"/mampostera = \"$PROGRAM_ID\"/" Anchor.toml
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
           solana config set --url localhost
+          # Safety net: eliminar Cargo.lock por si el cache lo restauró después
+          find . -name "Cargo.lock" -delete 2>/dev/null || true
           # Alinear versión CLI en Anchor.toml
           grep -q '\[toolchain\]' Anchor.toml \
             && sed -i 's/anchor_version = .*/anchor_version = "0.31.0"/' Anchor.toml \
