@@ -34,8 +34,11 @@ jobs:
 
       # CRÍTICO: debe ser el PRIMER step después de checkout
       # El Cargo.lock del repo es versión 4 (nightly) — stable no puede leerlo
-      - name: Delete Cargo.lock v4
-        run: rm -f Cargo.lock && echo "Cargo.lock eliminado"
+      - name: Delete all Cargo.lock v4 files
+        run: |
+          find . -name "Cargo.lock" -delete
+          echo "✅ Todos los Cargo.lock eliminados"
+          find . -name "Cargo.lock" 2>/dev/null || echo "✅ Confirmado: ninguno existe" 
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -167,8 +170,8 @@ jobs:
     environment: devnet
     steps:
       - uses: actions/checkout@v4
-      - name: Delete Cargo.lock v4
-        run: rm -f Cargo.lock
+      - name: Delete all Cargo.lock v4 files
+        run: find . -name "Cargo.lock" -delete
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
       - name: Pre-create Solana dirs
@@ -223,8 +226,8 @@ jobs:
     environment: testnet
     steps:
       - uses: actions/checkout@v4
-      - name: Delete Cargo.lock v4
-        run: rm -f Cargo.lock
+      - name: Delete all Cargo.lock v4 files
+        run: find . -name "Cargo.lock" -delete
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
       - name: Pre-create Solana dirs
