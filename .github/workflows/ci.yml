@@ -43,15 +43,15 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target/
-          key: ${{ runner.os }}-anchor031-${{ hashFiles('programs/**/Cargo.toml') }}-v9
+          key: ${{ runner.os }}-anchor031-${{ hashFiles('programs/**/Cargo.toml') }}-v10-nocargo-lock
 
       # Eliminar DESPUÉS del cache restore — el cache puede restaurar Cargo.lock v4
       - name: Delete all Cargo.lock v4 files
         run: |
-          find . -name "Cargo.lock" -delete 2>/dev/null || true
-          echo "✅ Cargo.lock eliminados post-cache"
-          ls -la Cargo.lock 2>/dev/null && echo "⚠️ Sigue existiendo" || echo "✅ No existe" 
+          find . -name "Cargo.lock" | xargs rm -f 2>/dev/null || true
+          find ~/.cargo -name "Cargo.lock" | xargs rm -f 2>/dev/null || true
+          echo "=== Cargo.lock files remaining ==="
+          find . -name "Cargo.lock" 2>/dev/null && echo "⚠️ Found!" || echo "✅ None found" 
 
       - name: Pre-create Solana dirs
         run: |
