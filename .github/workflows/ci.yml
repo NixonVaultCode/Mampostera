@@ -98,6 +98,14 @@ jobs:
           solana config set --url localhost
           # Safety net: eliminar Cargo.lock por si el cache lo restauró después
           find . -name "Cargo.lock" -delete 2>/dev/null || true
+
+          # Crear config de Cargo para deshabilitar lockfile v4 en todo el workspace
+          mkdir -p .cargo
+          cat > .cargo/config.toml << 'CARGOEOF'
+[unstable]
+next-lockfile-bump = false
+CARGOEOF
+          echo "✅ Cargo config creado" 
           # Alinear versión CLI en Anchor.toml
           grep -q '\[toolchain\]' Anchor.toml \
             && sed -i 's/anchor_version = .*/anchor_version = "0.31.0"/' Anchor.toml \
@@ -113,6 +121,10 @@ jobs:
 
       - name: Build Anchor program
         run: anchor build
+        env:
+          # Prevent Cargo from generating lockfile v4 (nightly feature)
+          CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP: "false"
+          RUSTFLAGS: "-Z next-lockfile-bump=false" 
 
       - name: Verify IDL
         run: |
