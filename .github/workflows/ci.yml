@@ -37,7 +37,7 @@ jobs:
       - name: Install Rust nightly (required by Anchor 0.31 + Solana BPF)
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-11-22
+          toolchain: nightly-2025-03-15
           components: rustfmt,clippy
           targets: wasm32-unknown-unknown
 
@@ -47,7 +47,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-anchor031-${{ hashFiles('programs/**/Cargo.toml') }}-v11-nightly-2024-11-22
+          key: ${{ runner.os }}-anchor031-${{ hashFiles('programs/**/Cargo.toml') }}-v11-nightly-2025-03-15
 
       # Eliminar DESPUÉS del cache restore — el cache puede restaurar Cargo.lock v4
       - name: Delete all Cargo.lock v4 files
@@ -182,7 +182,7 @@ jobs:
       - name: Install Rust nightly (required by Anchor 0.31 + Solana BPF)
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-11-22
+          toolchain: nightly-2025-03-15
           components: rustfmt,clippy
           targets: wasm32-unknown-unknown
       - name: Pre-create Solana dirs
@@ -242,7 +242,7 @@ jobs:
       - name: Install Rust nightly (required by Anchor 0.31 + Solana BPF)
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-11-22
+          toolchain: nightly-2025-03-15
           components: rustfmt,clippy
           targets: wasm32-unknown-unknown
       - name: Pre-create Solana dirs
