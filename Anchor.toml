@@ -1,15 +1,13 @@
 [features]
-seeds     = false   # no activar en producción — feature experimental
-skip-lint = false   # NUNCA en true — lint detecta errores de seguridad críticos
+seeds     = false
+skip-lint = false
 
-# ── Program IDs ──────────────────────────────────────────────────────────────
 [programs.localnet]
 mampostera = "MAMPoSTERAv2222222222222222222222222222222"
 
 [programs.devnet]
 mampostera = "MAMPoSTERAv2222222222222222222222222222222"
 
-# Actualizar tras: anchor deploy --provider.cluster testnet
 [programs.testnet]
 mampostera = "MAMPoSTERA11111111111111111111111111111111"
 
@@ -21,9 +19,14 @@ cluster = "Devnet"
 wallet  = "~/.config/solana/id.json"
 
 [scripts]
-test            = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
-deploy          = "anchor deploy --provider.cluster testnet"
-deploy-devnet   = "anchor deploy --provider.cluster devnet"
+test          = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+deploy        = "anchor deploy --provider.cluster testnet"
+deploy-devnet = "anchor deploy --provider.cluster devnet"
 
 [workspace]
 members = ["programs/*"]
+
+# ── Toolchain: alinea el CLI con anchor-lang 0.30.1 del programa ─────────────
+# Elimina el warning "anchor-lang version != CLI version"
+[toolchain]
+anchor_version = "0.30.1"
