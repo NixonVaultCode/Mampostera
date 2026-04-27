@@ -59,7 +59,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-${{ env.RUST_CHANNEL }}-anchor-${{ env.ANCHOR_VERSION }}-v14
+          key: ${{ runner.os }}-${{ env.RUST_CHANNEL }}-anchor-${{ env.ANCHOR_VERSION }}-v15-locked
 
       - name: Pre-create Solana dirs
         run: |
@@ -85,6 +85,7 @@ jobs:
             echo "Compilando anchor-cli 0.30.1 con nightly..."
             cargo +${{ env.RUST_CHANNEL }} install anchor-cli \
               --version ${{ env.ANCHOR_VERSION }} \
+              --locked \
               --force
           fi
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -221,7 +222,7 @@ jobs:
       - name: Install anchor-cli 0.30.1
         run: |
           cargo +${{ env.RUST_CHANNEL }} install anchor-cli \
-            --version ${{ env.ANCHOR_VERSION }} --force
+            --version ${{ env.ANCHOR_VERSION }} --locked --force
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Prep
         run: sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
@@ -276,7 +277,7 @@ jobs:
       - name: Install anchor-cli 0.30.1
         run: |
           cargo +${{ env.RUST_CHANNEL }} install anchor-cli \
-            --version ${{ env.ANCHOR_VERSION }} --force
+            --version ${{ env.ANCHOR_VERSION }} --locked --force
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Prep
         run: sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
