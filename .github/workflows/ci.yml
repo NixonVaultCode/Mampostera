@@ -55,7 +55,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-stable-anchor030-${{ hashFiles('programs/**/Cargo.toml') }}-v16
+          key: ${{ runner.os }}-stable-anchor030-${{ hashFiles('programs/**/Cargo.toml') }}-v17
 
       - name: Pre-create Solana dirs
         run: |
@@ -71,16 +71,17 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           solana --version || $HOME/.local/bin/solana --version
 
-      # Descargar anchor-cli 0.31.0 como BINARIO OFICIAL — sin compilar
-      # Ref: https://github.com/coral-xyz/anchor/releases/tag/v0.31.0
-      - name: Install anchor-cli 0.31.0 (binary)
+      # AVM 0.31.0 descarga el binario precompilado automáticamente
+      - name: Install AVM + anchor-cli 0.31.0 (binary via AVM)
         run: |
-          mkdir -p $HOME/.local/bin
-          curl -sSfL \
-            "https://github.com/coral-xyz/anchor/releases/download/v0.31.0/anchor-linux-x86_64" \
-            -o $HOME/.local/bin/anchor
-          chmod +x $HOME/.local/bin/anchor
-          anchor --version
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v0.31.0 avm --locked --force
+          export PATH="$HOME/.cargo/bin:$PATH"
+          # avm install en 0.31+ descarga binario, no compila
+          avm install 0.31.0
+          avm use 0.31.0
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          $HOME/.cargo/bin/anchor --version
 
       - name: Verify tools
         run: |
@@ -203,13 +204,13 @@ jobs:
             | tar -jxf - -C /tmp
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - name: Install anchor-cli 0.31.0 (binary)
+      - name: Install AVM + anchor-cli 0.31.0
         run: |
-          curl -sSfL \
-            "https://github.com/coral-xyz/anchor/releases/download/v0.31.0/anchor-linux-x86_64" \
-            -o $HOME/.local/bin/anchor
-          chmod +x $HOME/.local/bin/anchor
-          anchor --version
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v0.31.0 avm --locked --force
+          export PATH="$HOME/.cargo/bin:$PATH"
+          avm install 0.31.0 && avm use 0.31.0
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Prep
         run: sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
       - name: Restore wallet
@@ -258,13 +259,13 @@ jobs:
             | tar -jxf - -C /tmp
           cp -r /tmp/solana-release/bin/* $HOME/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - name: Install anchor-cli 0.31.0 (binary)
+      - name: Install AVM + anchor-cli 0.31.0
         run: |
-          curl -sSfL \
-            "https://github.com/coral-xyz/anchor/releases/download/v0.31.0/anchor-linux-x86_64" \
-            -o $HOME/.local/bin/anchor
-          chmod +x $HOME/.local/bin/anchor
-          anchor --version
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v0.31.0 avm --locked --force
+          export PATH="$HOME/.cargo/bin:$PATH"
+          avm install 0.31.0 && avm use 0.31.0
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Prep
         run: sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
       - name: Restore wallet
