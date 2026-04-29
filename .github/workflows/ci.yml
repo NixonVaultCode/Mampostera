@@ -55,7 +55,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-stable-anchor030-${{ hashFiles('programs/**/Cargo.toml') }}-v17
+          key: ${{ runner.os }}-stable-anchor030-${{ hashFiles('programs/**/Cargo.toml') }}-v18
 
       - name: Pre-create Solana dirs
         run: |
@@ -220,6 +220,7 @@ jobs:
           solana config set --url devnet && solana balance
       - name: Deploy
         run: |
+          find . -name "Cargo.lock" -delete || true
           anchor build
           anchor deploy --provider.cluster devnet
           PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
@@ -275,6 +276,7 @@ jobs:
           solana config set --url testnet && solana balance
       - name: Deploy
         run: |
+          find . -name "Cargo.lock" -delete || true
           anchor build
           anchor deploy --provider.cluster testnet
           PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
