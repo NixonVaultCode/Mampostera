@@ -38,13 +38,16 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Pin Rust to 1.81.0
+        run: rustup override set 1.81.0
+
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-v26-${{ hashFiles('programs/**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-v27-${{ hashFiles('programs/**/Cargo.toml') }}
 
       - name: Pre-create Solana dirs
         run: |
@@ -175,6 +178,9 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Pin Rust to 1.81.0
+        run: rustup override set 1.81.0
+
       - name: Pre-create Solana dirs
         run: mkdir -p $HOME/.local/bin $HOME/.cache/solana && chmod 755 $HOME/.cache/solana
 
@@ -252,6 +258,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Pin Rust to 1.81.0
+        run: rustup override set 1.81.0
 
       - name: Pre-create Solana dirs
         run: mkdir -p $HOME/.local/bin $HOME/.cache/solana && chmod 755 $HOME/.cache/solana
