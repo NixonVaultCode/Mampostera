@@ -1,7 +1,6 @@
-# Anchor 0.30.1 requiere nightly de este rango O stable >=1.80.
-# Usamos stable 1.81.0 que es la versión mínima probada con anchor-lang 0.30.1
-# y compatible con solana-program 1.18.x que trae el container backpackapp/build:v0.30.1.
+# Anchor 0.30.1 requiere stable >=1.80.
+# bpfel-unknown-unknown NO se instala via rustup en stable —
+# lo gestiona el toolchain de Solana/Anchor automáticamente.
 [toolchain]
 channel    = "1.81.0"
 components = ["rustfmt", "clippy"]
-targets    = ["bpfel-unknown-unknown"]
