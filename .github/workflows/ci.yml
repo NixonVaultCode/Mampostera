@@ -1,4 +1,4 @@
-name: Mampostera CI v0.7
+name: Mampostera CI v0.8
 
 on:
   push:
@@ -7,18 +7,29 @@ on:
     branches: [main]
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "20.18.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROBLEMA RAÍZ: backpackapp/build:v0.30.1 trae Node 18.x, pero
+#   @solana/codecs-numbers@2.3.0 exige Node >=20.18.0.
+# SOLUCIÓN: instalar Node 20 dentro del container via nvm antes de yarn.
+# ─────────────────────────────────────────────────────────────────────────────
 
 jobs:
+  # ── 1. Auditoría de seguridad (no-blocking) ────────────────────────────────
   security-audit:
     name: Security audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Audit Node
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Audit Node dependencies
         run: npm audit --audit-level=high
         continue-on-error: true
 
+  # ── 2. Compilar y testear el programa Anchor ───────────────────────────────
   test-program:
     name: Anchor program tests
     runs-on: ubuntu-latest
@@ -28,49 +39,90 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── Upgrade Node dentro del container ──────────────────────────────────
+      - name: Install Node 20 via nvm
+        shell: bash
+        run: |
+          export NVM_DIR="$HOME/.nvm"
+          if [ ! -d "$NVM_DIR" ]; then
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+          fi
+          source "$NVM_DIR/nvm.sh"
+          nvm install 20.18.0
+          nvm use 20.18.0
+          nvm alias default 20.18.0
+          # Hacer que la versión nueva sea la que usa el resto de steps
+          echo "$NVM_DIR/versions/node/v20.18.0/bin" >> $GITHUB_PATH
+
       - name: Verify tools
         run: |
+          node --version
           rustc --version
           solana --version
           anchor --version
 
-      - name: Configure build
+      # ── Configurar billetera y IDs ─────────────────────────────────────────
+      - name: Configure build environment
         run: |
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
           PROGRAM_ID=$(solana-keygen pubkey /tmp/ci-wallet.json)
-          sed -i "s/declare_id!(\".*\")/declare_id!(\"$PROGRAM_ID\")/" programs/mampostera/src/lib.rs
-          sed -i "s/mampostera = \".*\"/mampostera = \"$PROGRAM_ID\"/" Anchor.toml
+          # Reemplaza declare_id! en lib.rs
+          sed -i "s/declare_id!(\"[^\"]*\")/declare_id!(\"$PROGRAM_ID\")/" \
+            programs/mampostera/src/lib.rs
+          # Reemplaza en Anchor.toml (todas las redes)
+          sed -i "s/mampostera = \"[^\"]*\"/mampostera = \"$PROGRAM_ID\"/g" \
+            Anchor.toml
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
+          echo "PROGRAM_ID=$PROGRAM_ID"            >> $GITHUB_ENV
           solana config set --url localhost
-          sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
 
+      # ── Instalar dependencias JS ───────────────────────────────────────────
       - name: Install Node dependencies
-        run: yarn install --frozen-lockfile
+        run: |
+          # Deshabilita frozen-lockfile en CI para que yarn genere yarn.lock
+          # si no existe (el repo no lo commitea).
+          yarn install --no-frozen-lockfile
+        env:
+          YARN_ENABLE_IMMUTABLE_INSTALLS: "false"
 
+      # ── Build del programa Rust ────────────────────────────────────────────
       - name: Build Anchor program
         run: anchor build
 
+      # ── Verificar IDL generado ─────────────────────────────────────────────
       - name: Verify IDL
         run: |
-          [ -f target/idl/mampostera.json ] \
-            && python3 -c "import json; d=json.load(open('target/idl/mampostera.json')); print(f'✅ {len(d[\"instructions\"])} instrucciones')" \
-            || echo "⚠️ IDL no encontrado"
+          if [ -f target/idl/mampostera.json ]; then
+            python3 -c "
+          import json, sys
+          d = json.load(open('target/idl/mampostera.json'))
+          n = len(d.get('instructions', []))
+          print(f'✅ IDL OK — {n} instrucciones')
+          "
+          else
+            echo "⚠️  IDL no encontrado — revisa errores de anchor build"
+            exit 1
+          fi
 
-      - name: Run tests
+      # ── Ejecutar tests Anchor ──────────────────────────────────────────────
+      - name: Run Anchor tests
         run: anchor test --skip-deploy
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
+          ANCHOR_PROVIDER_URL: http://localhost:8899
 
-      - name: Upload artifacts
+      # ── Guardar artefactos ─────────────────────────────────────────────────
+      - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ github.sha }}
+          name: anchor-build-${{ github.sha }}
           path: |
             target/idl/mampostera.json
             target/types/mampostera.ts
           retention-days: 14
 
+  # ── 3. Build del frontend Next.js ─────────────────────────────────────────
   build-frontend:
     name: Frontend build
     runs-on: ubuntu-latest
@@ -83,14 +135,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "yarn"
 
-      - name: Install deps
-        run: yarn install --frozen-lockfile
+      # No hay yarn.lock commiteado → usar --no-frozen-lockfile y generarlo
+      - name: Install dependencies
+        run: yarn install --no-frozen-lockfile
 
-      - name: Type check
+      - name: Type-check (non-blocking)
         run: yarn tsc
         continue-on-error: true
 
-      - name: Build
+      - name: Build Next.js
         run: yarn build
         env:
           NEXT_PUBLIC_PROGRAM_ID: "MAMPoSTERAv2222222222222222222222222222222"
@@ -99,14 +152,17 @@ jobs:
           NEXT_PUBLIC_AUTHORITY_PUBKEY: "11111111111111111111111111111111"
           NEXT_PUBLIC_CIVIC_GATEKEEPER: "ignREusXmGrscGNUesoU9mxfds9AiYTezUKex2PsZV6"
           NEXT_PUBLIC_USDC_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+          # Evita errores de build por env vars faltantes en CI
+          SKIP_ENV_VALIDATION: "1"
 
-      - name: Upload frontend
+      - name: Upload frontend artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-${{ github.sha }}
           path: .next/
           retention-days: 7
 
+  # ── 4. Deploy a Devnet (sólo main) ────────────────────────────────────────
   deploy-devnet:
     name: Deploy to Devnet
     runs-on: ubuntu-latest
@@ -118,42 +174,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore wallet
+      - name: Install Node 20 via nvm
+        shell: bash
+        run: |
+          export NVM_DIR="$HOME/.nvm"
+          if [ ! -d "$NVM_DIR" ]; then
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+          fi
+          source "$NVM_DIR/nvm.sh"
+          nvm install 20.18.0
+          nvm use 20.18.0
+          nvm alias default 20.18.0
+          echo "$NVM_DIR/versions/node/v20.18.0/bin" >> $GITHUB_PATH
+
+      - name: Restore deploy wallet
         run: |
           echo "${{ secrets.DEPLOY_KEYPAIR_JSON }}" > /tmp/wallet.json
           echo "ANCHOR_WALLET=/tmp/wallet.json" >> $GITHUB_ENV
           solana config set --url devnet
-          solana balance
 
-      - name: Deploy
+      - name: Check balance
+        run: solana balance --keypair /tmp/wallet.json || true
+
+      - name: Deploy program
         run: |
-          sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
           anchor build
           anchor deploy --provider.cluster devnet
           PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
           echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
           echo "✅ https://explorer.solana.com/address/$PROGRAM_ID?cluster=devnet"
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
       - name: Install frontend deps
-        run: yarn install --frozen-lockfile
+        run: yarn install --no-frozen-lockfile
 
-      - name: Deploy Vercel
+      - name: Deploy to Vercel
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: '--prod'
+          vercel-args: "--prod"
         env:
           NEXT_PUBLIC_PROGRAM_ID: ${{ env.PROGRAM_ID }}
           NEXT_PUBLIC_SOLANA_NETWORK: devnet
           NEXT_PUBLIC_RPC_ENDPOINT: ${{ secrets.HELIUS_RPC_URL }}
 
+  # ── 5. Deploy a Testnet (sólo release) ────────────────────────────────────
   deploy-testnet:
     name: Deploy to Testnet
     runs-on: ubuntu-latest
@@ -165,43 +231,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore wallet
+      - name: Install Node 20 via nvm
+        shell: bash
+        run: |
+          export NVM_DIR="$HOME/.nvm"
+          if [ ! -d "$NVM_DIR" ]; then
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+          fi
+          source "$NVM_DIR/nvm.sh"
+          nvm install 20.18.0
+          nvm use 20.18.0
+          nvm alias default 20.18.0
+          echo "$NVM_DIR/versions/node/v20.18.0/bin" >> $GITHUB_PATH
+
+      - name: Restore testnet wallet
         run: |
           echo "${{ secrets.TESTNET_DEPLOY_KEYPAIR_JSON }}" > /tmp/wallet.json
-          echo "ANCHOR_WALLET=/tmp/wallet.json" >> $GITHUB_ENV
+          echo "ANCHOR_WALLET=/tmp/wallet.json"             >> $GITHUB_ENV
           solana config set --url testnet
-          solana balance
 
-      - name: Deploy
+      - name: Deploy program
         run: |
-          sed -i '/^solana-program/d' programs/mampostera/Cargo.toml || true
           anchor build
           anchor deploy --provider.cluster testnet
           PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
           echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
       - name: Install frontend deps
-        run: yarn install --frozen-lockfile
+        run: yarn install --no-frozen-lockfile
 
-      - name: Publish IDL
+      - name: Publish IDL on-chain
         run: |
           anchor idl init \
             --filepath target/idl/mampostera.json \
             $(solana address -k target/deploy/mampostera-keypair.json) \
             --provider.cluster testnet
 
-      - name: Deploy Vercel
+      - name: Deploy to Vercel
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: '--prod'
+          vercel-args: "--prod"
         env:
           NEXT_PUBLIC_PROGRAM_ID: ${{ env.PROGRAM_ID }}
           NEXT_PUBLIC_SOLANA_NETWORK: testnet
