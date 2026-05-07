@@ -30,18 +30,32 @@ jobs:
     needs: security-audit
     container:
       image: backpackapp/build:v0.30.1
+
     steps:
+      # ── PASO 1: checkout sin Cargo.lock ───────────────────────────────────
       - uses: actions/checkout@v4
 
-      # Elimina CUALQUIER Cargo.lock — aunque esté en .gitignore,
-      # si alguna vez estuvo trackeado git lo incluye en el checkout.
-      # Debe correr ANTES de cualquier comando cargo/anchor.
-      - name: Force remove Cargo.lock
+      # ── PASO 2: borrar Cargo.lock INMEDIATAMENTE — antes de cualquier
+      #    comando cargo/anchor. El archivo puede estar trackeado en git
+      #    aunque esté en .gitignore.
+      - name: Remove Cargo.lock (must run before any cargo command)
         run: |
+          git rm --cached Cargo.lock 2>/dev/null || true
+          rm -f Cargo.lock
           find . -name "Cargo.lock" -not -path "*/target/*" -delete
-          echo "✅ Cargo.lock eliminado"
+          echo "Cargo.lock present after removal: $(find . -name 'Cargo.lock' -not -path '*/target/*' | wc -l)"
 
-      # ── Upgrade Node dentro del container ──────────────────────────────────
+      # ── PASO 3: actualizar Cargo/rustup al toolchain 1.85.0 ───────────────
+      # El container trae Cargo ~1.75 que no puede leer lockfile v4.
+      # rustup ya está instalado en backpackapp/build — solo actualizamos.
+      - name: Update Rust toolchain to 1.85.0
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustup default 1.85.0
+          rustc --version
+          cargo --version
+
+      # ── PASO 4: Node 24 ───────────────────────────────────────────────────
       - name: Install Node 24 via nvm
         shell: bash
         run: |
@@ -77,17 +91,14 @@ jobs:
           echo "PROGRAM_ID=$PROGRAM_ID"            >> $GITHUB_ENV
           solana config set --url localhost
 
-      # ── Instalar dependencias JS ───────────────────────────────────────────
       - name: Install Node dependencies
         run: yarn install --no-frozen-lockfile
         env:
           YARN_ENABLE_IMMUTABLE_INSTALLS: "false"
 
-      # ── Build del programa Rust ────────────────────────────────────────────
       - name: Build Anchor program
         run: anchor build
 
-      # ── Verificar IDL generado ─────────────────────────────────────────────
       - name: Verify IDL
         run: |
           if [ -f target/idl/mampostera.json ]; then
@@ -95,21 +106,19 @@ jobs:
           import json
           d = json.load(open('target/idl/mampostera.json'))
           n = len(d.get('instructions', []))
-          print(f'✅ IDL OK — {n} instrucciones')
+          print(f'IDL OK — {n} instrucciones')
           "
           else
-            echo "⚠️  IDL no encontrado — revisa errores de anchor build"
+            echo "IDL no encontrado"
             exit 1
           fi
 
-      # ── Ejecutar tests Anchor ──────────────────────────────────────────────
       - name: Run Anchor tests
         run: anchor test --skip-deploy
         env:
           ANCHOR_WALLET: /tmp/ci-wallet.json
           ANCHOR_PROVIDER_URL: http://localhost:8899
 
-      # ── Guardar artefactos ─────────────────────────────────────────────────
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -170,8 +179,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Force remove Cargo.lock
-        run: find . -name "Cargo.lock" -not -path "*/target/*" -delete
+      - name: Remove Cargo.lock
+        run: |
+          git rm --cached Cargo.lock 2>/dev/null || true
+          rm -f Cargo.lock
+
+      - name: Update Rust toolchain to 1.85.0
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustup default 1.85.0
 
       - name: Install Node 24 via nvm
         shell: bash
@@ -193,16 +209,13 @@ jobs:
           echo "ANCHOR_WALLET=/tmp/wallet.json" >> $GITHUB_ENV
           solana config set --url devnet
 
-      - name: Check balance
-        run: solana balance --keypair /tmp/wallet.json || true
-
       - name: Deploy program
         run: |
           anchor build
           anchor deploy --provider.cluster devnet
           PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
           echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
-          echo "✅ https://explorer.solana.com/address/$PROGRAM_ID?cluster=devnet"
+          echo "https://explorer.solana.com/address/$PROGRAM_ID?cluster=devnet"
 
       - name: Install frontend deps
         run: yarn install --no-frozen-lockfile
@@ -231,8 +244,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Force remove Cargo.lock
-        run: find . -name "Cargo.lock" -not -path "*/target/*" -delete
+      - name: Remove Cargo.lock
+        run: |
+          git rm --cached Cargo.lock 2>/dev/null || true
+          rm -f Cargo.lock
+
+      - name: Update Rust toolchain to 1.85.0
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustup default 1.85.0
 
       - name: Install Node 24 via nvm
         shell: bash
