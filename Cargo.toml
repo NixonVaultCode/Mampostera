@@ -1,27 +1,298 @@
-[workspace]
-members   = ["programs/*"]
-resolver  = "2"
+name: Mampostera CI v0.8
 
-[workspace.package]
-# Mínimo requerido por edition2024 (constant_time_eq 0.4.2)
-rust-version = "1.85"
+on:
+  push:
+    branches: [main, develop, release]
+  pull_request:
+    branches: [main]
 
-[profile.release]
-overflow-checks = true
-lto             = "fat"
-codegen-units   = 1
+env:
+  NODE_VERSION: "24"
+  # Fuerza lockfile v3 — Rust 1.85 genera v4 por defecto,
+  # incompatible con el Cargo antiguo del container backpackapp/build:v0.30.1
+  CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP: "false"
 
-[profile.release.build-override]
-opt-level     = 3
-incremental   = false
-codegen-units = 1
+jobs:
+  # ── 1. Auditoría de seguridad (no-blocking) ────────────────────────────────
+  security-audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Audit Node dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true
 
-# NOTA: El patch de `time` se eliminó.
-# Era necesario para workaround de una regresión en time <0.3.36, pero:
-#   1. El rev "v0.3.36" es un tag, no un hash — cargo lo resuelve de forma
-#      inconsistente entre versiones y genera el warning "patch was not used".
-#   2. Con Rust 1.85+ y anchor 0.30.1 las dependencias de time se resuelven
-#      correctamente desde crates.io sin necesidad de patch.
-# Si vuelve a aparecer un error de `time`, agregar:
-#   [patch.crates-io]
-#   time = { version = "0.3.47" }   ← usar la versión de crates.io directamente
+  # ── 2. Compilar y testear el programa Anchor ───────────────────────────────
+  test-program:
+    name: Anchor program tests
+    runs-on: ubuntu-latest
+    needs: security-audit
+    container:
+      image: backpackapp/build:v0.30.1
+    env:
+      CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove any Cargo.lock
+        run: rm -f Cargo.lock
+
+      - name: Update Rust toolchain to 1.85.0
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustup default 1.85.0
+          rustc --version
+          cargo --version
+
+      - name: Install Node 24 via nvm
+        shell: bash
+        run: |
+          export NVM_DIR="$HOME/.nvm"
+          if [ ! -d "$NVM_DIR" ]; then
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+          fi
+          source "$NVM_DIR/nvm.sh"
+          nvm install 24
+          nvm use 24
+          nvm alias default 24
+          NODE_BIN=$(nvm which 24 | xargs dirname)
+          echo "$NODE_BIN" >> $GITHUB_PATH
+
+      - name: Verify tools
+        run: |
+          node --version
+          rustc --version
+          cargo --version
+          solana --version
+          anchor --version
+
+      - name: Configure build environment
+        run: |
+          solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
+          PROGRAM_ID=$(solana-keygen pubkey /tmp/ci-wallet.json)
+          sed -i "s/declare_id!(\"[^\"]*\")/declare_id!(\"$PROGRAM_ID\")/" \
+            programs/mampostera/src/lib.rs
+          sed -i "s/mampostera = \"[^\"]*\"/mampostera = \"$PROGRAM_ID\"/g" \
+            Anchor.toml
+          echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
+          echo "PROGRAM_ID=$PROGRAM_ID"            >> $GITHUB_ENV
+          solana config set --url localhost
+
+      - name: Install Node dependencies
+        run: yarn install --no-frozen-lockfile
+        env:
+          YARN_ENABLE_IMMUTABLE_INSTALLS: "false"
+
+      - name: Build Anchor program
+        run: anchor build
+        env:
+          CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP: "false"
+
+      - name: Verify IDL
+        run: |
+          if [ -f target/idl/mampostera.json ]; then
+            python3 -c "
+          import json
+          d = json.load(open('target/idl/mampostera.json'))
+          n = len(d.get('instructions', []))
+          print(f'IDL OK — {n} instrucciones')
+          "
+          else
+            echo "IDL no encontrado"
+            exit 1
+          fi
+
+      - name: Run Anchor tests
+        run: anchor test --skip-deploy
+        env:
+          ANCHOR_WALLET: /tmp/ci-wallet.json
+          ANCHOR_PROVIDER_URL: http://localhost:8899
+          CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP: "false"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anchor-build-${{ github.sha }}
+          path: |
+            target/idl/mampostera.json
+            target/types/mampostera.ts
+          retention-days: 14
+
+  # ── 3. Build del frontend Next.js ─────────────────────────────────────────
+  build-frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    needs: test-program
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "yarn"
+
+      - name: Install dependencies
+        run: yarn install --no-frozen-lockfile
+
+      - name: Type-check (non-blocking)
+        run: yarn tsc
+        continue-on-error: true
+
+      - name: Build Next.js
+        run: yarn build
+        env:
+          NEXT_PUBLIC_PROGRAM_ID: "MAMPoSTERAv2222222222222222222222222222222"
+          NEXT_PUBLIC_SOLANA_NETWORK: "devnet"
+          NEXT_PUBLIC_RPC_ENDPOINT: "https://api.devnet.solana.com"
+          NEXT_PUBLIC_AUTHORITY_PUBKEY: "11111111111111111111111111111111"
+          NEXT_PUBLIC_CIVIC_GATEKEEPER: "ignREusXmGrscGNUesoU9mxfds9AiYTezUKex2PsZV6"
+          NEXT_PUBLIC_USDC_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+          SKIP_ENV_VALIDATION: "1"
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-${{ github.sha }}
+          path: .next/
+          retention-days: 7
+
+  # ── 4. Deploy a Devnet (sólo main) ────────────────────────────────────────
+  deploy-devnet:
+    name: Deploy to Devnet
+    runs-on: ubuntu-latest
+    needs: [test-program, build-frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: devnet
+    container:
+      image: backpackapp/build:v0.30.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove any Cargo.lock
+        run: rm -f Cargo.lock
+
+      - name: Update Rust toolchain to 1.85.0
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustup default 1.85.0
+
+      - name: Install Node 24 via nvm
+        shell: bash
+        run: |
+          export NVM_DIR="$HOME/.nvm"
+          if [ ! -d "$NVM_DIR" ]; then
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+          fi
+          source "$NVM_DIR/nvm.sh"
+          nvm install 24
+          nvm use 24
+          nvm alias default 24
+          NODE_BIN=$(nvm which 24 | xargs dirname)
+          echo "$NODE_BIN" >> $GITHUB_PATH
+
+      - name: Restore deploy wallet
+        run: |
+          echo "${{ secrets.DEPLOY_KEYPAIR_JSON }}" > /tmp/wallet.json
+          echo "ANCHOR_WALLET=/tmp/wallet.json" >> $GITHUB_ENV
+          solana config set --url devnet
+
+      - name: Deploy program
+        run: |
+          anchor build
+          anchor deploy --provider.cluster devnet
+          PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
+          echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
+        env:
+          CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP: "false"
+
+      - name: Install frontend deps
+        run: yarn install --no-frozen-lockfile
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"
+        env:
+          NEXT_PUBLIC_PROGRAM_ID: ${{ env.PROGRAM_ID }}
+          NEXT_PUBLIC_SOLANA_NETWORK: devnet
+          NEXT_PUBLIC_RPC_ENDPOINT: ${{ secrets.HELIUS_RPC_URL }}
+
+  # ── 5. Deploy a Testnet (sólo release) ────────────────────────────────────
+  deploy-testnet:
+    name: Deploy to Testnet
+    runs-on: ubuntu-latest
+    needs: [test-program, build-frontend]
+    if: github.ref == 'refs/heads/release' && github.event_name == 'push'
+    environment: testnet
+    container:
+      image: backpackapp/build:v0.30.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove any Cargo.lock
+        run: rm -f Cargo.lock
+
+      - name: Update Rust toolchain to 1.85.0
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustup default 1.85.0
+
+      - name: Install Node 24 via nvm
+        shell: bash
+        run: |
+          export NVM_DIR="$HOME/.nvm"
+          if [ ! -d "$NVM_DIR" ]; then
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+          fi
+          source "$NVM_DIR/nvm.sh"
+          nvm install 24
+          nvm use 24
+          nvm alias default 24
+          NODE_BIN=$(nvm which 24 | xargs dirname)
+          echo "$NODE_BIN" >> $GITHUB_PATH
+
+      - name: Restore testnet wallet
+        run: |
+          echo "${{ secrets.TESTNET_DEPLOY_KEYPAIR_JSON }}" > /tmp/wallet.json
+          echo "ANCHOR_WALLET=/tmp/wallet.json"             >> $GITHUB_ENV
+          solana config set --url testnet
+
+      - name: Deploy program
+        run: |
+          anchor build
+          anchor deploy --provider.cluster testnet
+          PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
+          echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
+        env:
+          CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP: "false"
+
+      - name: Install frontend deps
+        run: yarn install --no-frozen-lockfile
+
+      - name: Publish IDL on-chain
+        run: |
+          anchor idl init \
+            --filepath target/idl/mampostera.json \
+            $(solana address -k target/deploy/mampostera-keypair.json) \
+            --provider.cluster testnet
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"
+        env:
+          NEXT_PUBLIC_PROGRAM_ID: ${{ env.PROGRAM_ID }}
+          NEXT_PUBLIC_SOLANA_NETWORK: testnet
+          NEXT_PUBLIC_RPC_ENDPOINT: https://api.testnet.solana.com
