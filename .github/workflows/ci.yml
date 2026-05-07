@@ -9,12 +9,6 @@ on:
 env:
   NODE_VERSION: "24"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PROBLEMA RAÍZ: backpackapp/build:v0.30.1 trae Node 18.x, pero
-#   @solana/codecs-numbers@2.3.0 exige Node >=24.
-# SOLUCIÓN: instalar Node 20 dentro del container via nvm antes de yarn.
-# ─────────────────────────────────────────────────────────────────────────────
-
 jobs:
   # ── 1. Auditoría de seguridad (no-blocking) ────────────────────────────────
   security-audit:
@@ -39,6 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Eliminar Cargo.lock si existe (puede ser v4 incompatible con este cargo)
+      - name: Remove stale Cargo.lock
+        run: rm -f Cargo.lock
+
       # ── Upgrade Node dentro del container ──────────────────────────────────
       - name: Install Node 24 via nvm
         shell: bash
@@ -51,7 +49,6 @@ jobs:
           nvm install 24
           nvm use 24
           nvm alias default 24
-          # Exportar el bin de la versión exacta instalada
           NODE_BIN=$(nvm which 24 | xargs dirname)
           echo "$NODE_BIN" >> $GITHUB_PATH
 
@@ -59,6 +56,7 @@ jobs:
         run: |
           node --version
           rustc --version
+          cargo --version
           solana --version
           anchor --version
 
@@ -67,10 +65,8 @@ jobs:
         run: |
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
           PROGRAM_ID=$(solana-keygen pubkey /tmp/ci-wallet.json)
-          # Reemplaza declare_id! en lib.rs
           sed -i "s/declare_id!(\"[^\"]*\")/declare_id!(\"$PROGRAM_ID\")/" \
             programs/mampostera/src/lib.rs
-          # Reemplaza en Anchor.toml (todas las redes)
           sed -i "s/mampostera = \"[^\"]*\"/mampostera = \"$PROGRAM_ID\"/g" \
             Anchor.toml
           echo "ANCHOR_WALLET=/tmp/ci-wallet.json" >> $GITHUB_ENV
@@ -79,10 +75,7 @@ jobs:
 
       # ── Instalar dependencias JS ───────────────────────────────────────────
       - name: Install Node dependencies
-        run: |
-          # Deshabilita frozen-lockfile en CI para que yarn genere yarn.lock
-          # si no existe (el repo no lo commitea).
-          yarn install --no-frozen-lockfile
+        run: yarn install --no-frozen-lockfile
         env:
           YARN_ENABLE_IMMUTABLE_INSTALLS: "false"
 
@@ -95,7 +88,7 @@ jobs:
         run: |
           if [ -f target/idl/mampostera.json ]; then
             python3 -c "
-          import json, sys
+          import json
           d = json.load(open('target/idl/mampostera.json'))
           n = len(d.get('instructions', []))
           print(f'✅ IDL OK — {n} instrucciones')
@@ -136,7 +129,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "yarn"
 
-      # No hay yarn.lock commiteado → usar --no-frozen-lockfile y generarlo
       - name: Install dependencies
         run: yarn install --no-frozen-lockfile
 
@@ -153,7 +145,6 @@ jobs:
           NEXT_PUBLIC_AUTHORITY_PUBKEY: "11111111111111111111111111111111"
           NEXT_PUBLIC_CIVIC_GATEKEEPER: "ignREusXmGrscGNUesoU9mxfds9AiYTezUKex2PsZV6"
           NEXT_PUBLIC_USDC_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
-          # Evita errores de build por env vars faltantes en CI
           SKIP_ENV_VALIDATION: "1"
 
       - name: Upload frontend artifact
@@ -174,6 +165,9 @@ jobs:
       image: backpackapp/build:v0.30.1
     steps:
       - uses: actions/checkout@v4
+
+      - name: Remove stale Cargo.lock
+        run: rm -f Cargo.lock
 
       - name: Install Node 24 via nvm
         shell: bash
@@ -232,6 +226,9 @@ jobs:
       image: backpackapp/build:v0.30.1
     steps:
       - uses: actions/checkout@v4
+
+      - name: Remove stale Cargo.lock
+        run: rm -f Cargo.lock
 
       - name: Install Node 24 via nvm
         shell: bash
