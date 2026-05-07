@@ -1,7 +1,3 @@
-# Rust 1.85.0 es la primera versión stable que soporta edition2024.
-# Requerido por: constant_time_eq v0.4.2 (dependencia transitiva de anchor 0.30.1)
-# Compatible con: solana-program 1.18.x (container backpackapp/build:v0.30.1)
-# bpfel-unknown-unknown lo gestiona el SDK de Solana — NO declararlo aquí.
 [toolchain]
-channel    = "1.85.0"
+channel    = "1.86.0"
 components = ["rustfmt", "clippy"]
