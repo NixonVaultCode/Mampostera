@@ -26,8 +26,6 @@ jobs:
         continue-on-error: true
 
   # ── 2. Build y test del programa Anchor ──────────────────────────────────
-  # Usamos ubuntu-latest directamente — NO el container backpackapp/build
-  # porque su Cargo interno no puede leer lockfile v4 generado por Rust 1.85.
   test-program:
     name: Anchor program tests
     runs-on: ubuntu-latest
@@ -54,9 +52,12 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin
             target
-          key: cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: cargo-${{ env.RUST_VERSION }}-
+          key: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-
+            cargo-${{ env.RUST_VERSION }}-
 
       # ── Solana CLI 1.18.26 ────────────────────────────────────────────────
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
@@ -64,12 +65,17 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
-      # ── Anchor CLI 0.30.1 ─────────────────────────────────────────────────
-      - name: Install Anchor CLI ${{ env.ANCHOR_VERSION }}
+      # ── Anchor CLI 0.30.1 via AVM ─────────────────────────────────────────
+      # AVM (Anchor Version Manager) maneja el patch de `time` internamente
+      # y es la forma oficial recomendada por el equipo de Anchor.
+      - name: Install AVM and Anchor CLI ${{ env.ANCHOR_VERSION }}
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor \
-            --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+          # Instalar AVM
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          # Instalar y usar anchor 0.30.1 via avm
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
 
       - name: Verify tools
         run: |
@@ -104,7 +110,7 @@ jobs:
       - name: Verify IDL
         run: |
           python3 -c "
-          import json, sys
+          import json
           d = json.load(open('target/idl/mampostera.json'))
           n = len(d.get('instructions', []))
           print(f'IDL OK — {n} instrucciones')
@@ -189,20 +195,22 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin
             target
-          key: cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: cargo-${{ env.RUST_VERSION }}-
+          key: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-
 
       - name: Install Solana CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
-      - name: Install Anchor CLI
+      - name: Install AVM and Anchor CLI
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor \
-            --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
 
       - name: Restore deploy wallet
         run: |
@@ -260,20 +268,22 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin
             target
-          key: cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: cargo-${{ env.RUST_VERSION }}-
+          key: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-
 
       - name: Install Solana CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
-      - name: Install Anchor CLI
+      - name: Install AVM and Anchor CLI
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor \
-            --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
 
       - name: Restore testnet wallet
         run: |
