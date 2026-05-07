@@ -33,9 +33,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Eliminar Cargo.lock si existe (puede ser v4 incompatible con este cargo)
-      - name: Remove stale Cargo.lock
-        run: rm -f Cargo.lock
+      # Elimina CUALQUIER Cargo.lock — aunque esté en .gitignore,
+      # si alguna vez estuvo trackeado git lo incluye en el checkout.
+      # Debe correr ANTES de cualquier comando cargo/anchor.
+      - name: Force remove Cargo.lock
+        run: |
+          find . -name "Cargo.lock" -not -path "*/target/*" -delete
+          echo "✅ Cargo.lock eliminado"
 
       # ── Upgrade Node dentro del container ──────────────────────────────────
       - name: Install Node 24 via nvm
@@ -166,8 +170,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Remove stale Cargo.lock
-        run: rm -f Cargo.lock
+      - name: Force remove Cargo.lock
+        run: find . -name "Cargo.lock" -not -path "*/target/*" -delete
 
       - name: Install Node 24 via nvm
         shell: bash
@@ -227,8 +231,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Remove stale Cargo.lock
-        run: rm -f Cargo.lock
+      - name: Force remove Cargo.lock
+        run: find . -name "Cargo.lock" -not -path "*/target/*" -delete
 
       - name: Install Node 24 via nvm
         shell: bash
