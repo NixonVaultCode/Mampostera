@@ -8,12 +8,14 @@ on:
 
 env:
   NODE_VERSION: "24"
-  SOLANA_VERSION: "1.18.26"
+  # Solana 1.18.17 + Rust 1.79.0 = lockfile v3 garantizado
+  # cargo-build-sbf embebido en esta versión de Solana usa Cargo 1.79
+  # que genera lockfile v3 nativo — sin patches, sin variables de entorno
+  SOLANA_VERSION: "1.18.17"
   ANCHOR_VERSION: "0.30.1"
-  RUST_VERSION: "1.86.0"
+  RUST_VERSION: "1.79.0"
 
 jobs:
-  # ── 1. Auditoría de seguridad (no-blocking) ──────────────────────────────
   security-audit:
     name: Security audit
     runs-on: ubuntu-latest
@@ -25,29 +27,26 @@ jobs:
       - run: npm audit --audit-level=high
         continue-on-error: true
 
-  # ── 2. Build y test del programa Anchor ──────────────────────────────────
   test-program:
     name: Anchor program tests
     runs-on: ubuntu-latest
     needs: security-audit
-
     steps:
       - uses: actions/checkout@v4
 
+      # Rust 1.79.0 — mismo que usa cargo-build-sbf de Solana 1.18.17
       - name: Install Rust ${{ env.RUST_VERSION }}
         run: |
-          curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }} --profile minimal
+          curl https://sh.rustup.rs -sSf | sh -s -- -y \
+            --default-toolchain ${{ env.RUST_VERSION }} \
+            --profile minimal \
+            --component rustfmt,clippy
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          source "$HOME/.cargo/env"
-          rustc --version
-          cargo --version
 
-      # ── Node 24 ──────────────────────────────────────────────────────────
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # ── Caché de cargo ────────────────────────────────────────────────────
       - uses: actions/cache@v4
         with:
           path: |
@@ -55,28 +54,19 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             target
-          key: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-
-            cargo-${{ env.RUST_VERSION }}-
+          key: cargo-${{ env.RUST_VERSION }}-${{ env.SOLANA_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: cargo-${{ env.RUST_VERSION }}-${{ env.SOLANA_VERSION }}-
 
-      # ── Solana CLI 1.18.26 ────────────────────────────────────────────────
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
-      # ── Anchor CLI 0.30.1 via AVM ─────────────────────────────────────────
-      # AVM (Anchor Version Manager) maneja el patch de `time` internamente
-      # y es la forma oficial recomendada por el equipo de Anchor.
-      - name: Install AVM and Anchor CLI ${{ env.ANCHOR_VERSION }}
+      - name: Install Anchor CLI ${{ env.ANCHOR_VERSION }}
         run: |
-          # Instalar AVM
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          # Instalar y usar anchor 0.30.1 via avm
-          avm install ${{ env.ANCHOR_VERSION }}
-          avm use ${{ env.ANCHOR_VERSION }}
 
       - name: Verify tools
         run: |
@@ -86,7 +76,6 @@ jobs:
           anchor --version
           node --version
 
-      # ── Billetera CI y Program ID ─────────────────────────────────────────
       - name: Configure build environment
         run: |
           solana-keygen new --no-bip39-passphrase --outfile /tmp/ci-wallet.json
@@ -99,28 +88,12 @@ jobs:
           echo "PROGRAM_ID=$PROGRAM_ID"            >> $GITHUB_ENV
           solana config set --url localhost
 
-      # ── Dependencias JS ───────────────────────────────────────────────────
       - name: Install Node dependencies
         run: yarn install --no-frozen-lockfile
 
-      # ── Build ─────────────────────────────────────────────────────────────
-      # anchor build llama internamente a cargo-build-sbf que genera un
-      # Cargo.lock v4 con Rust 1.86 y luego lo relee con un cargo interno
-      # más viejo. Solución: patch en ~/.cargo/config.toml para forzar v3,
-      # más rm del lockfile justo antes.
-      - name: Patch cargo config to force lockfile v3
-        run: |
-          mkdir -p ~/.cargo
-          printf '[unstable]\nnext-lockfile-bump = false\n' >> ~/.cargo/config.toml
-          rm -f Cargo.lock
-
       - name: Build Anchor program
         run: anchor build
-        env:
-          CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP: "false"
-          RUSTFLAGS: 
 
-      # ── Verificar IDL ─────────────────────────────────────────────────────
       - name: Verify IDL
         run: |
           python3 -c "
@@ -130,7 +103,6 @@ jobs:
           print(f'IDL OK — {n} instrucciones')
           "
 
-      # ── Tests ─────────────────────────────────────────────────────────────
       - name: Run Anchor tests
         run: anchor test --skip-deploy
         env:
@@ -147,7 +119,6 @@ jobs:
             target/types/mampostera.ts
           retention-days: 14
 
-  # ── 3. Build del frontend Next.js ─────────────────────────────────────────
   build-frontend:
     name: Frontend build
     runs-on: ubuntu-latest
@@ -171,7 +142,7 @@ jobs:
         run: yarn build
         env:
           NEXT_PUBLIC_PROGRAM_ID: "MAMPoSTERAv2222222222222222222222222222222"
-          NEXT_PUBLIC_SOLANA_NETWORK: "devnet"
+          NEXT_PUBLIC_SOLANA_VERSION: "devnet"
           NEXT_PUBLIC_RPC_ENDPOINT: "https://api.devnet.solana.com"
           NEXT_PUBLIC_AUTHORITY_PUBKEY: "11111111111111111111111111111111"
           NEXT_PUBLIC_CIVIC_GATEKEEPER: "ignREusXmGrscGNUesoU9mxfds9AiYTezUKex2PsZV6"
@@ -185,7 +156,6 @@ jobs:
           path: .next/
           retention-days: 7
 
-  # ── 4. Deploy a Devnet (sólo main) ────────────────────────────────────────
   deploy-devnet:
     name: Deploy to Devnet
     runs-on: ubuntu-latest
@@ -197,10 +167,10 @@ jobs:
 
       - name: Install Rust ${{ env.RUST_VERSION }}
         run: |
-          curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }} --profile minimal
+          curl https://sh.rustup.rs -sSf | sh -s -- -y \
+            --default-toolchain ${{ env.RUST_VERSION }} \
+            --profile minimal
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          source "$HOME/.cargo/env"
-          rustc --version
 
       - uses: actions/setup-node@v4
         with:
@@ -213,20 +183,19 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             target
-          key: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-
+          key: cargo-${{ env.RUST_VERSION }}-${{ env.SOLANA_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: cargo-${{ env.RUST_VERSION }}-${{ env.SOLANA_VERSION }}-
 
       - name: Install Solana CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
-      - name: Install AVM and Anchor CLI
+      - name: Install Anchor CLI
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          avm install ${{ env.ANCHOR_VERSION }}
-          avm use ${{ env.ANCHOR_VERSION }}
 
       - name: Restore deploy wallet
         run: |
@@ -234,16 +203,12 @@ jobs:
           echo "ANCHOR_WALLET=/tmp/wallet.json" >> $GITHUB_ENV
           solana config set --url devnet
 
-      - name: Check balance
-        run: solana balance --keypair /tmp/wallet.json || true
-
       - name: Deploy program
         run: |
           anchor build
           anchor deploy --provider.cluster devnet
           PROGRAM_ID=$(solana address -k target/deploy/mampostera-keypair.json)
           echo "PROGRAM_ID=$PROGRAM_ID" >> $GITHUB_ENV
-          echo "https://explorer.solana.com/address/$PROGRAM_ID?cluster=devnet"
 
       - name: Install Node deps
         run: yarn install --no-frozen-lockfile
@@ -260,7 +225,6 @@ jobs:
           NEXT_PUBLIC_SOLANA_NETWORK: devnet
           NEXT_PUBLIC_RPC_ENDPOINT: ${{ secrets.HELIUS_RPC_URL }}
 
-  # ── 5. Deploy a Testnet (sólo release) ────────────────────────────────────
   deploy-testnet:
     name: Deploy to Testnet
     runs-on: ubuntu-latest
@@ -272,10 +236,10 @@ jobs:
 
       - name: Install Rust ${{ env.RUST_VERSION }}
         run: |
-          curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }} --profile minimal
+          curl https://sh.rustup.rs -sSf | sh -s -- -y \
+            --default-toolchain ${{ env.RUST_VERSION }} \
+            --profile minimal
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          source "$HOME/.cargo/env"
-          rustc --version
 
       - uses: actions/setup-node@v4
         with:
@@ -288,20 +252,19 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin
             target
-          key: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: cargo-${{ env.RUST_VERSION }}-${{ env.ANCHOR_VERSION }}-
+          key: cargo-${{ env.RUST_VERSION }}-${{ env.SOLANA_VERSION }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: cargo-${{ env.RUST_VERSION }}-${{ env.SOLANA_VERSION }}-
 
       - name: Install Solana CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
 
-      - name: Install AVM and Anchor CLI
+      - name: Install Anchor CLI
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          avm install ${{ env.ANCHOR_VERSION }}
-          avm use ${{ env.ANCHOR_VERSION }}
 
       - name: Restore testnet wallet
         run: |
