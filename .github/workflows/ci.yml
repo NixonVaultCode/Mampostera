@@ -103,8 +103,27 @@ jobs:
         run: yarn install --no-frozen-lockfile
 
       # ── Build ─────────────────────────────────────────────────────────────
+      - name: Diagnose before build
+        run: |
+          echo "=== CARGO VERSION ==="
+          cargo --version
+          which cargo
+          echo "=== RUSTC VERSION ==="
+          rustc --version
+          echo "=== ALL CARGO BINARIES ==="
+          find / -name "cargo" -type f 2>/dev/null | head -20
+          echo "=== ANCHOR VERSION ==="
+          anchor --version
+          which anchor
+          echo "=== CARGO.LOCK STATUS ==="
+          ls -la Cargo.lock 2>/dev/null && head -5 Cargo.lock || echo "No Cargo.lock found"
+          echo "=== PATH ==="
+          echo $PATH
+
       - name: Build Anchor program
-        run: anchor build
+        run: |
+          rm -f Cargo.lock
+          anchor build
 
       # ── Verificar IDL ─────────────────────────────────────────────────────
       - name: Verify IDL
