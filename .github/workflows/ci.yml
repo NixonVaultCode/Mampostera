@@ -111,13 +111,8 @@ jobs:
       - name: Patch cargo config to force lockfile v3
         run: |
           mkdir -p ~/.cargo
-          cat >> ~/.cargo/config.toml << 'EOF'
-[unstable]
-next-lockfile-bump = false
-EOF
+          printf '[unstable]\nnext-lockfile-bump = false\n' >> ~/.cargo/config.toml
           rm -f Cargo.lock
-          echo "Cargo config:"
-          cat ~/.cargo/config.toml
 
       - name: Build Anchor program
         run: anchor build
