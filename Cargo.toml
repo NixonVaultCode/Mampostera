@@ -3,7 +3,7 @@ members   = ["programs/*"]
 resolver  = "2"
 
 [workspace.package]
-rust-version = "1.86"
+rust-version = "1.79"
 
 [profile.release]
 overflow-checks = true
@@ -14,8 +14,3 @@ codegen-units   = 1
 opt-level     = 3
 incremental   = false
 codegen-units = 1
-
-# Fuerza lockfile v3 compatible con el Cargo del container backpackapp/build:v0.30.1
-# Rust 1.85 genera v4 por defecto; esto lo previene a nivel de proyecto.
-[workspace.metadata.cargo]
-lock-version = 3
