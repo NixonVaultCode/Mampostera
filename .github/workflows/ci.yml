@@ -57,7 +57,7 @@ jobs:
 
       - name: Install Anchor CLI ${{ env.ANCHOR_VERSION }}
         run: |
-          printf '[patch.crates-io]\ntime = { version = "0.3.45" }\n' > /tmp/patch.toml
+          printf '[patch.crates-io]\ntime = { version = "=0.3.47" }\n' > /tmp/patch.toml
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag v${{ env.ANCHOR_VERSION }} anchor-cli \
             --config /tmp/patch.toml
@@ -178,7 +178,7 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
       - name: Install Anchor CLI
         run: |
-          printf '[patch.crates-io]\ntime = { version = "0.3.45" }\n' > /tmp/patch.toml
+          printf '[patch.crates-io]\ntime = { version = "=0.3.47" }\n' > /tmp/patch.toml
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag v${{ env.ANCHOR_VERSION }} anchor-cli \
             --config /tmp/patch.toml
@@ -239,7 +239,7 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
       - name: Install Anchor CLI
         run: |
-          printf '[patch.crates-io]\ntime = { version = "0.3.45" }\n' > /tmp/patch.toml
+          printf '[patch.crates-io]\ntime = { version = "=0.3.47" }\n' > /tmp/patch.toml
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag v${{ env.ANCHOR_VERSION }} anchor-cli \
             --config /tmp/patch.toml
