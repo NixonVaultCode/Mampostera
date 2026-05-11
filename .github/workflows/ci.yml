@@ -84,7 +84,9 @@ jobs:
       - name: Build Anchor program
         run: |
           source "$HOME/.cargo/env"
+          rm -f Cargo.lock
           CARGO_UNSTABLE_NEXT_LOCKFILE_BUMP=false anchor build
+          rm -f Cargo.lock
 
       - name: Verify IDL
         run: |
